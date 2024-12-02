@@ -1,0 +1,34 @@
+{
+	"name": "@harperdb/edgio-router",
+	"version": "0.0.1",
+	"type": "module",
+	"description": "A HarperDB Component for routing requests using the Edgio router API",
+	"keywords": [
+		"harperdb",
+		"caching",
+	],
+	"homepage": "https://github.com/HarperDB/edgio-router",
+	"bugs": {
+		"url": "https://github.com/HarperDB/edgio-router/issues",
+		"email": "support@harperdb.io"
+	},
+	"author": {
+		"name": "HarperDB",
+		"email": "support@harperdb.io"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/HarperDB/edgio-router.git"
+	},
+	"license": "MIT",
+	"scripts": {
+		"format": "prettier --write ."
+	},
+	"dependencies": {
+	},
+	"devDependencies": {
+		"@harperdb/code-guidelines": "^0.0.2",
+		"prettier": "^3.3.3"
+	},
+	"prettier": "@harperdb/code-guidelines/prettier"
+}

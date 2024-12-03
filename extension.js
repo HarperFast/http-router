@@ -3,7 +3,7 @@ export function start(options = {}) {
 	let cacheHandler = getCacheHandler(options);
 	return {
 		async handleFile(js, url_path, file_path) {
-			const routes = await import(file_path);
+			const routes = (await import(file_path)).default;
 			const servers = options.server.http(async (request, nextHandler) => {
 				// set the cache key for the request, applying any rules for the cache key
 				request.cacheKey = routes.getCacheKey(request);
@@ -13,6 +13,6 @@ export function start(options = {}) {
 					return routes.onRequest(request, nextHandler);
 				});
 			});
-		}
-	}
+		},
+	};
 }

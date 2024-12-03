@@ -1,0 +1,5 @@
+type HttpCache @table(database: "cache", expiration: 86400) @export {
+	id: ID @primaryKey
+	headers: Any
+	content: Bytes
+}

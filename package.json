@@ -1,5 +1,5 @@
 {
-	"name": "@harperdb/edgio-router",
+	"name": "@harperdb/http-router",
 	"version": "0.0.1",
 	"type": "module",
 	"description": "A HarperDB Component for routing requests using the Edgio router API",
@@ -7,9 +7,9 @@
 		"harperdb",
 		"caching"
 	],
-	"homepage": "https://github.com/HarperDB/edgio-router",
+	"homepage": "https://github.com/HarperDB/http-router",
 	"bugs": {
-		"url": "https://github.com/HarperDB/edgio-router/issues",
+		"url": "https://github.com/HarperDB/http-router/issues",
 		"email": "support@harperdb.io"
 	},
 	"author": {
@@ -18,7 +18,7 @@
 	},
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/HarperDB/edgio-router.git"
+		"url": "git+https://github.com/HarperDB/http-router.git"
 	},
 	"license": "MIT",
 	"scripts": {

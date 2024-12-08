@@ -5,13 +5,15 @@ export function start(options = {}) {
 		async handleFile(js, url_path, file_path) {
 			const routes = (await import(file_path)).default;
 			const servers = options.server.http(async (request, nextHandler) => {
-				// set the cache key for the request, applying any rules for the cache key
-				request.cacheKey = routes.getCacheKey(request);
-				// let the cache attempt to resolve
-				return cacheHandler(request, () => {
-					// wasn't cached, handle the routing. nextHandler can be called to delegate to the main origin server
-					return routes.onRequest(request, nextHandler);
-				});
+				const handler = routes.onRequest(request, nextHandler); // get the handler for the request, that has/will
+				// process the request
+				// if we have a cache key, we can attempt to resolve the request from the cache
+				if (request.cacheKey) {
+					// let the cache attempt to resolve
+					return cacheHandler(request, handler);
+				} else {
+					return handler(request);
+				}
 			});
 		},
 	};

@@ -1,3 +1,5 @@
+import { URLSearchParams } from 'url';
+import { origins } from './extension.js';
 /**
  * The main router class for defining a set of routes and their handlers.
  */
@@ -12,29 +14,6 @@ export class Router {
 		return this;
 	}
 
-	/**
-	 * Determine the cache key for a request based on any defined rules that define it
-	 * Return undefined is caching is not enabled for the request
-	 * @param request
-	 * @return {*|string}
-	 */
-	getCacheKey(request) {
-		let additionalParts;
-		for (let rule of this.rules) {
-			if (rule.match(request)) {
-				if (rule.caching?.cache_key?.include_query_params) {
-					additionalParts = [];
-					new URLSearchParams(request.url).forEach((value, key) => {
-						if (rule.caching.cache_key.include_query_params.includes(key)) {
-							additionalParts.push(`${key}=${value}`);
-						}
-					});
-				}
-			}
-		}
-		return request.url + (additionalParts ? '?' + additionalParts.join('&') : '');
-	}
-
 	match(match, options) {
 		this.rules.push(new Rule(match, options));
 		return this;
@@ -44,6 +23,21 @@ export class Router {
 			this.rules.push(new Rule(match, options));
 		}
 		return this;
+	}
+	fallback(options) {
+		return this.match(null, options);
+	}
+	destination(originName, router) {
+		const originConfig = getOriginConfig(originName);
+		if (!originConfig.hostname) throw new Error('No hostname found for origin');
+		return this.match(
+			{
+				headers: {
+					Host: originConfig.hostname,
+				},
+			},
+			router
+		);
 	}
 
 	/**
@@ -64,9 +58,20 @@ export class Router {
 						return () => ({ status: actions.redirect.status, headers: { Location: actions.redirect.location } });
 					}
 					if (actions.proxy) {
-						// proxy the request
+						// proxy the request, first get the origin hostname
+						const originName = typeof actions.proxy === 'string' ? actions.proxy : actions.proxy.origin?.set_origin;
+						const originConfig = getOriginConfig(originName);
+						const originHostname = originConfig.hostname;
+						if (!originHostname) throw new Error('No hostname found for origin');
+						request.rejectUnauthorized = originConfig.rejectUnauthorized;
+						if (originConfig.hostHeader) request.headers.host = originConfig.hostHeader;
+						if (originConfig.servername) request.servername = originConfig.servername;
+						return fetch('https://' + originHostname + request.url, request);
 					}
 					if (actions.cache) caching = actions.cache;
+				}
+				if (rule.router) {
+					return rule.router.onRequest(request, nextHandler);
 				}
 				if (rule.headers?.set_response_headers) {
 					for (let key in rule.headers.set_response_headers) {
@@ -74,8 +79,8 @@ export class Router {
 						request._nodeResponse.setHeader(key, value);
 					}
 				}
-				if (caching?.maxAgeSeconds) {
-					if (caching.edge) {
+				if (caching) {
+					if (caching.maxAgeSeconds || caching.staleWhileRevalidateSeconds) {
 						// enable caching, set a cache key
 						let additionalParts;
 						if (caching.cache_key?.include_query_params) {
@@ -96,13 +101,16 @@ export class Router {
 							additionalParts = additionalParts ?? [];
 							for (let cookie of caching.cache_key?.include_cookies) {
 								additionalParts.push(`${cookie}=${request.headers.get('cookie')}`);
-						}
+							}
 
-						request.maxAgeSeconds = caching.maxAgeSeconds;
-						request.cacheKey = request.pathname + (additionalParts ? '?' + additionalParts.join('&') : '');
-						// let the caching layer handle the headers
-					} else if (caching.browser) {
-						request._nodeResponse.setHeader('Cache-Control', `max-age=${caching.maxAgeSeconds}`);
+							request.maxAgeSeconds = caching.maxAgeSeconds;
+							request.staleWhileRevalidateSeconds = caching.staleWhileRevalidateSeconds;
+							request.cacheKey = request.pathname + (additionalParts ? '?' + additionalParts.join('&') : '');
+							// let the caching layer handle the headers
+						}
+					}
+					if (caching.clientMaxAgeSeconds) {
+						request._nodeResponse.setHeader('Cache-Control', `max-age=${caching.clientMaxAgeSeconds}`);
 					}
 				}
 			}
@@ -113,7 +121,8 @@ export class Router {
 class Rule {
 	condition = {};
 	constructor(condition, options) {
-		if (typeof condition === 'string') {
+		if (condition == null) this.condition = null;
+		else if (typeof condition === 'string') {
 			this.condition.path = stringToRegex(condition);
 		} else if ((typeof condition) instanceof RegExp) {
 			this.condition.path = condition;
@@ -123,8 +132,16 @@ class Rule {
 			}
 			if (condition.query) this.condition.query = condition.query;
 		}
+		if (options instanceof Router) {
+			this.router = options;
+			return;
+		}
 		if (options.caching) {
 			if (options.caching.max_age) options.caching.maxAgeSeconds = convertToMS(options.caching.max_age);
+			if (options.caching.client_max_age)
+				options.caching.clientMaxAgeSeconds = convertToMS(options.caching.client_max_age);
+			if (options.caching.stale_while_revalidate)
+				options.caching.staleWhileRevalidateSeconds = convertToMS(options.caching.stale_while_revalidate);
 		}
 		if (typeof options === 'function') {
 			this.handler = options;
@@ -133,9 +150,10 @@ class Rule {
 		}
 	}
 	match(request) {
+		if (this.condition == null) return true;
 		if (this.condition.path) {
-			if (this.condition.path.test(request.url)) {
-				return true;
+			if (!this.condition.path.test(request.url)) {
+				return false;
 			}
 		}
 		if (this.condition.query) {
@@ -145,8 +163,15 @@ class Rule {
 					return false;
 				}
 			}
-			return true;
 		}
+		if (this.condition.headers) {
+			for (let key in this.condition.headers) {
+				if (request.headers.get(key) !== this.condition.headers[key]) {
+					return false;
+				}
+			}
+		}
+		return true;
 	}
 }
 
@@ -168,8 +193,11 @@ class RequestActions {
 	get cache() {
 		let actions = this;
 		return (options) => {
-			if (options.edge?.maxAgeSeconds) {
-				actions.cache = { maxAgeSeconds: options.edge.maxAgeSeconds };
+			if (options.edge) {
+				actions.cache = {
+					maxAgeSeconds: options.edge.maxAgeSeconds,
+					staleWhileRevalidateSeconds: options.edge.staleWhileRevalidateSeconds,
+				};
 			}
 			if (options.browser) {
 				if (options.browser.maxAgeSeconds) {
@@ -178,6 +206,11 @@ class RequestActions {
 					nodeResponse.setHeader('Cache-Control', `max-age=${options.browser.maxAgeSeconds}`);
 				}
 			}
+		};
+	}
+	get updateResponseHeader() {
+		return (key, value) => {
+			// ??
 		};
 	}
 	async run(handler) {
@@ -216,6 +249,13 @@ class OrRule {
 			}
 		}
 	}
+}
+
+function getOriginConfig(origin_name) {
+	if (!origin_name) throw new Error('No origin name provided');
+	const origin_config = origins.get(origin_name);
+	if (!origin_config) throw new Error('Origin not found');
+	return origin_config;
 }
 
 function stringToRegex(str) {

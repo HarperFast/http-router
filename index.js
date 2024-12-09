@@ -1,12 +1,17 @@
-import { URLSearchParams } from 'url';
-import { origins } from './extension.js';
+const { URLSearchParams } = require('node:url');
+const { origins } = require('./extension.js');
+const { request: httpsRequest } = require('node:https');
 /**
  * The main router class for defining a set of routes and their handlers.
  */
-export class Router {
+class Router {
 	rules = [];
 	get(path, options) {
-		this.rules.push(new Rule({ path, method: 'GET' }));
+		this.rules.push(new Rule({ path, method: 'GET' }, options));
+		return this;
+	}
+	post(path, options) {
+		this.rules.push(new Rule({ path, method: 'POST' }, options));
 		return this;
 	}
 	use() {
@@ -29,13 +34,14 @@ export class Router {
 	}
 	destination(originName, router) {
 		const originConfig = getOriginConfig(originName);
-		if (!originConfig.hostname) throw new Error('No hostname found for origin');
 		return this.match(
-			{
-				headers: {
-					Host: originConfig.hostname,
-				},
-			},
+			originConfig.hostname
+				? {
+						headers: {
+							Host: originConfig.hostname,
+						},
+					}
+				: null,
 			router
 		);
 	}
@@ -49,37 +55,71 @@ export class Router {
 	onRequest(request, nextHandler) {
 		for (let rule of this.rules) {
 			if (rule.match(request)) {
-				let caching = rule.caching;
-				if (rule.handler) {
-					// I believe the handler is supposed to be executed on each request, but not sure
-					let actions = new RequestActions(request);
-					rule.handler(actions);
-					if (actions.redirect) {
-						return () => ({ status: actions.redirect.status, headers: { Location: actions.redirect.location } });
-					}
-					if (actions.proxy) {
-						// proxy the request, first get the origin hostname
-						const originName = typeof actions.proxy === 'string' ? actions.proxy : actions.proxy.origin?.set_origin;
-						const originConfig = getOriginConfig(originName);
-						const originHostname = originConfig.hostname;
-						if (!originHostname) throw new Error('No hostname found for origin');
-						request.rejectUnauthorized = originConfig.rejectUnauthorized;
-						if (originConfig.hostHeader) request.headers.host = originConfig.hostHeader;
-						if (originConfig.servername) request.servername = originConfig.servername;
-						return fetch('https://' + originHostname + request.url, request);
-					}
-					if (actions.cache) caching = actions.cache;
-				}
 				if (rule.router) {
 					return rule.router.onRequest(request, nextHandler);
 				}
+				let actions;
+				if (rule.handler) {
+					actions = new RequestActions(request);
+					// I believe the handler is supposed to be executed on each request, but not sure
+					let result = rule.handler(actions);
+					if (result) {
+						if (result.caching) actions.setCaching(result.caching);
+						if (result.origin) actions.setProxying(result.origin);
+					}
+				} else {
+					actions = rule.actions;
+				}
+				if (actions.redirecting) {
+					return () => ({ status: actions.redirecting.status, headers: { Location: actions.redirecting.location } });
+				}
+				if (actions.proxying) {
+					// proxy the request, first get the origin hostname
+					const originName =
+						typeof actions.proxying === 'string'
+							? actions.proxying
+							: (actions.proxying.origin?.set_origin ?? actions.proxying.origin);
+					const originConfig = getOriginConfig(originName);
+					const originHostname = originConfig.hostname;
+					if (!originHostname) throw new Error('No hostname found for origin');
+					const requestOptions = {
+						hostname: originHostname,
+						path: request.url,
+						method: request.method,
+						headers: request.headers.asObject,
+					};
+					requestOptions.rejectUnauthorized = originConfig.rejectUnauthorized;
+					if (originConfig.hostHeader) requestOptions.headers.host = originConfig.hostHeader;
+					if (originConfig.servername) requestOptions.servername = originConfig.servername;
+					const nodeResponse = request._nodeResponse;
+					return () => {
+						return new Promise((resolve, reject) => {
+							let proxiedRequest = httpsRequest(requestOptions, (response) => {
+								nodeResponse.writeHead(response.statusCode, response.statusMessage, response.headers);
+								response
+									.pipe(nodeResponse)
+									.on('finish', () => {
+										resolve();
+									})
+									.on('error', reject);
+							}).on('error', (error) => {
+								reject(error);
+							});
+							if (request.method !== 'GET' && request.method !== 'HEAD') {
+								request._nodeRequest.pipe(proxiedRequest);
+							} else proxiedRequest.end();
+						});
+					};
+				}
+
 				if (rule.headers?.set_response_headers) {
 					for (let key in rule.headers.set_response_headers) {
 						let value = rule.headers.set_response_headers[key];
 						request._nodeResponse.setHeader(key, value);
 					}
 				}
-				if (caching) {
+				if (actions.caching) {
+					const caching = actions.caching;
 					if (caching.maxAgeSeconds || caching.staleWhileRevalidateSeconds) {
 						// enable caching, set a cache key
 						let additionalParts;
@@ -102,12 +142,11 @@ export class Router {
 							for (let cookie of caching.cache_key?.include_cookies) {
 								additionalParts.push(`${cookie}=${request.headers.get('cookie')}`);
 							}
-
-							request.maxAgeSeconds = caching.maxAgeSeconds;
-							request.staleWhileRevalidateSeconds = caching.staleWhileRevalidateSeconds;
-							request.cacheKey = request.pathname + (additionalParts ? '?' + additionalParts.join('&') : '');
-							// let the caching layer handle the headers
 						}
+						request.maxAgeSeconds = caching.maxAgeSeconds;
+						request.staleWhileRevalidateSeconds = caching.staleWhileRevalidateSeconds;
+						request.cacheKey = request.pathname + (additionalParts ? '?' + additionalParts.join('&') : '');
+						// let the caching layer handle the headers
 					}
 					if (caching.clientMaxAgeSeconds) {
 						request._nodeResponse.setHeader('Cache-Control', `max-age=${caching.clientMaxAgeSeconds}`);
@@ -118,8 +157,10 @@ export class Router {
 		return nextHandler;
 	}
 }
+exports.Router = Router;
 class Rule {
 	condition = {};
+	actions = new RequestActions();
 	constructor(condition, options) {
 		if (condition == null) this.condition = null;
 		else if (typeof condition === 'string') {
@@ -137,16 +178,16 @@ class Rule {
 			return;
 		}
 		if (options.caching) {
-			if (options.caching.max_age) options.caching.maxAgeSeconds = convertToMS(options.caching.max_age);
-			if (options.caching.client_max_age)
-				options.caching.clientMaxAgeSeconds = convertToMS(options.caching.client_max_age);
-			if (options.caching.stale_while_revalidate)
-				options.caching.staleWhileRevalidateSeconds = convertToMS(options.caching.stale_while_revalidate);
+			this.actions.setCaching(options.caching);
 		}
+		if (options.origin) {
+			this.actions.setProxying(options.origin);
+		}
+
 		if (typeof options === 'function') {
 			this.handler = options;
 		} else {
-			Object.assign(this, options);
+			Object.assign(this.actions, options);
 		}
 	}
 	match(request) {
@@ -194,18 +235,45 @@ class RequestActions {
 		let actions = this;
 		return (options) => {
 			if (options.edge) {
-				actions.cache = {
+				actions.caching = {
 					maxAgeSeconds: options.edge.maxAgeSeconds,
 					staleWhileRevalidateSeconds: options.edge.staleWhileRevalidateSeconds,
 				};
 			}
 			if (options.browser) {
-				if (options.browser.maxAgeSeconds) {
+				if (options.browser.maxAgeSeconds != null) {
 					const nodeResponse = this.request._nodeResponse;
 					nodeResponse.wroteHeaders = true;
 					nodeResponse.setHeader('Cache-Control', `max-age=${options.browser.maxAgeSeconds}`);
 				}
 			}
+		};
+	}
+	setCaching(caching) {
+		if (caching.max_age) caching.maxAgeSeconds = convertToMS(options.caching.max_age);
+		if (caching.client_max_age) caching.clientMaxAgeSeconds = convertToMS(options.caching.client_max_age);
+		if (caching.stale_while_revalidate)
+			caching.staleWhileRevalidateSeconds = convertToMS(options.caching.stale_while_revalidate);
+		this.caching = caching;
+	}
+	setProxying(origin) {
+		this.proxying = {
+			origin: origin.set_origin,
+		};
+	}
+	get proxy() {
+		let actions = this;
+		return (path, options) => {
+			actions.proxying = {
+				origin: path,
+				...options,
+			};
+		};
+	}
+	get redirect() {
+		let actions = this;
+		return (location, status) => {
+			actions.redirecting = { location, status };
 		};
 	}
 	get updateResponseHeader() {
@@ -235,9 +303,9 @@ class RequestActions {
 	}
 }
 
-export function or(...conditions) {
+exports.or = function (...conditions) {
 	return new OrRule(conditions);
-}
+};
 class OrRule {
 	constructor(conditions) {
 		this.conditions = conditions;
@@ -254,7 +322,8 @@ class OrRule {
 function getOriginConfig(origin_name) {
 	if (!origin_name) throw new Error('No origin name provided');
 	const origin_config = origins.get(origin_name);
-	if (!origin_config) throw new Error('Origin not found');
+	if (!origin_config && origin_name === 'pwa') return {}; // special catchall to go the local origin, I guess?
+	if (!origin_config) throw new Error(`Origin "${origin_name}" not found`);
 	return origin_config;
 }
 

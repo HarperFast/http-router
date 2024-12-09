@@ -45,6 +45,15 @@ class Router {
 			router
 		);
 	}
+	catch(statusCode, handler) {
+		// TODO: Define status code handlers
+		return this;
+	}
+	if(condition, handler) {
+		let conditionalRouter = new Router();
+		this.rules.push(condition, conditionalRouter);
+		return conditionalRouter;
+	}
 
 	/**
 	 * For each incoming request, perform routing based on the defined rules, returning a function that can be called
@@ -152,6 +161,7 @@ class Router {
 						request._nodeResponse.setHeader('Cache-Control', `max-age=${caching.clientMaxAgeSeconds}`);
 					}
 				}
+				return nextHandler;
 			}
 		}
 		return nextHandler;
@@ -250,10 +260,10 @@ class RequestActions {
 		};
 	}
 	setCaching(caching) {
-		if (caching.max_age) caching.maxAgeSeconds = convertToMS(options.caching.max_age);
-		if (caching.client_max_age) caching.clientMaxAgeSeconds = convertToMS(options.caching.client_max_age);
+		if (caching.max_age) caching.maxAgeSeconds = convertToMS(caching.max_age);
+		if (caching.client_max_age) caching.clientMaxAgeSeconds = convertToMS(caching.client_max_age);
 		if (caching.stale_while_revalidate)
-			caching.staleWhileRevalidateSeconds = convertToMS(options.caching.stale_while_revalidate);
+			caching.staleWhileRevalidateSeconds = convertToMS(caching.stale_while_revalidate);
 		this.caching = caching;
 	}
 	setProxying(origin) {

@@ -1,6 +1,6 @@
 {
 	"name": "@harperdb/http-router",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"type": "commonjs",
 	"main": "index.js",
 	"description": "A HarperDB Component for routing requests using the Edgio router API",
@@ -26,7 +26,7 @@
 		"format": "prettier --write ."
 	},
 	"dependencies": {
-		"@harperdb/http-cache": "^0.0.1",
+		"@harperdb/http-cache": "^0.1.0",
 		"send": "^1.1.0"
 	},
 	"devDependencies": {

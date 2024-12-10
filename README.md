@@ -17,14 +17,19 @@ npm install @harperdb/http-router
 
 ```yaml
 '@harperdb/http-router':
-  package: '@harperdb/http-router'
-  files: '/router.js'
+  package: '@harperdb/http-router' # this can include a @version number if desired
+  files: '*.*js' # Load js files so it can find the router.js file and config
+# The router comes before the other main framework adapter in the pipeline
+'@harperdb/nextjs':
+  package: '@harperdb/nextjs'
+  files: '/*'
+  prebuilt: true
 ```
 
 And then you can build a `router.js` file in the root of your application that looks like this:
 
 ```js
-const { Router } = require('@harperdb/http-router');
+const { Router, or, nextRoutes } = require('@harperdb/http-router');
 module.exports = new Router().get('/some-path', ({ cache, proxy }) => {
 	// handle the request here
 })
@@ -37,3 +42,7 @@ module.exports = new Router().get('/some-path', ({ cache, proxy }) => {
 ### `port: number`
 
 Specify a port for the caching server. Defaults to `9926`.
+
+### `files: String`
+
+Used to load the necessary JS files.

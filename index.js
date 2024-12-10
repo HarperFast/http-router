@@ -30,6 +30,12 @@ class Router {
 		return this;
 	}
 	fallback(options) {
+		const fallback = new Rule(null, options);
+		fallback.isFallback = true;
+		this.rules.push(fallback);
+		return this;
+	}
+	always(options) {
 		return this.match(null, options);
 	}
 	destination(originName, router) {
@@ -62,8 +68,11 @@ class Router {
 	 * @param request
 	 */
 	onRequest(request, nextHandler) {
+		let foundRule = false;
 		for (let rule of this.rules) {
 			if (rule.match(request)) {
+				if (rule.isFallback && foundRule) continue;
+				foundRule = true;
 				if (rule.router) {
 					return rule.router.onRequest(request, nextHandler);
 				}
@@ -161,7 +170,6 @@ class Router {
 						request._nodeResponse.setHeader('Cache-Control', `max-age=${caching.clientMaxAgeSeconds}`);
 					}
 				}
-				return nextHandler;
 			}
 		}
 		return nextHandler;
@@ -178,8 +186,13 @@ class Rule {
 		} else if ((typeof condition) instanceof RegExp) {
 			this.condition.path = condition;
 		} else {
-			if (condition.path) {
-				this.condition.path = stringToRegex(condition.path);
+			let path = condition.path;
+			if (path) {
+				if (path.not) {
+					this.condition.negated = true;
+					path = path.not;
+				}
+				this.condition.path = stringToRegex(path);
 			}
 			if (condition.query) this.condition.query = condition.query;
 		}
@@ -203,7 +216,7 @@ class Rule {
 	match(request) {
 		if (this.condition == null) return true;
 		if (this.condition.path) {
-			if (!this.condition.path.test(request.url)) {
+			if (Boolean(this.condition.path.test(request.url)) === Boolean(this.condition.path.negated)) {
 				return false;
 			}
 		}
@@ -316,6 +329,7 @@ class RequestActions {
 exports.or = function (...conditions) {
 	return new OrRule(conditions);
 };
+exports.nextRoutes = {}; // I think this is for the next.js routes
 class OrRule {
 	constructor(conditions) {
 		this.conditions = conditions;

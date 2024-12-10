@@ -20,7 +20,8 @@ class Router {
 	}
 
 	match(match, options) {
-		this.rules.push(new Rule(match, options));
+		let router = this.currentRouter || this;
+		router.rules.push(new Rule(match, options));
 		return this;
 	}
 	matchAny(matches, options) {
@@ -57,8 +58,9 @@ class Router {
 	}
 	if(condition, handler) {
 		let conditionalRouter = new Router();
-		this.rules.push(condition, conditionalRouter);
-		return conditionalRouter;
+		this.rules.push(new Rule(condition, conditionalRouter));
+		this.currentRouter = conditionalRouter;
+		return this;
 	}
 
 	/**
@@ -91,18 +93,26 @@ class Router {
 				if (actions.redirecting) {
 					return () => ({ status: actions.redirecting.status, headers: { Location: actions.redirecting.location } });
 				}
-				if (actions.proxying) {
+				const proxying = actions.proxying;
+				if (proxying) {
 					// proxy the request, first get the origin hostname
-					const originName =
-						typeof actions.proxying === 'string'
-							? actions.proxying
-							: (actions.proxying.origin?.set_origin ?? actions.proxying.origin);
+					const originName = typeof proxying === 'string' ? proxying : proxying.set_origin;
 					const originConfig = getOriginConfig(originName);
 					const originHostname = originConfig.hostname;
 					if (!originHostname) throw new Error('No hostname found for origin');
+					let path = request.url;
+					if (actions.url?.url_rewrite) {
+						for (let rewrite of actions.url.url_rewrite) {
+							if (rewrite.syntax === 'regexp') {
+								path = path.replace(new RegExp(rewrite.source), rewrite.destination);
+							}
+						}
+					}
+					const headers = request.headers.asObject;
+					if (originConfig.hostHeader) headers.Host = originConfig.hostHeader;
 					const requestOptions = {
 						hostname: originHostname,
-						path: request.url,
+						path,
 						method: request.method,
 						headers: request.headers.asObject,
 					};
@@ -129,11 +139,27 @@ class Router {
 						});
 					};
 				}
-
-				if (rule.headers?.set_response_headers) {
-					for (let key in rule.headers.set_response_headers) {
-						let value = rule.headers.set_response_headers[key];
-						request._nodeResponse.setHeader(key, value);
+				const headers = actions.headers;
+				if (headers) {
+					if (headers.set_response_headers) {
+						for (let key in headers.set_response_headers) {
+							let value = headers.set_response_headers[key];
+							request._nodeResponse.setHeader(key, value);
+						}
+					}
+					if (headers.add_response_headers) {
+						for (let key in headers.add_response_headers) {
+							let value = headers.add_response_headers[key];
+							request._nodeResponse.setHeader(key, value);
+						}
+					}
+					if (headers.remove_response_headers) {
+						for (let key in headers.remove_response_headers) {
+							request._nodeResponse.removeHeader(key);
+						}
+					}
+					if (headers.set_client_ip_custom_header) {
+						request._nodeResponse.setHeader(headers.set_client_ip_custom_header, request.ip);
 					}
 				}
 				if (actions.caching) {
@@ -181,20 +207,25 @@ class Rule {
 	actions = new RequestActions();
 	constructor(condition, options) {
 		if (condition == null) this.condition = null;
-		else if (typeof condition === 'string') {
+		else if (typeof condition === 'string' || condition instanceof RegExp || condition?.not) {
 			this.condition.path = stringToRegex(condition);
-		} else if ((typeof condition) instanceof RegExp) {
-			this.condition.path = condition;
 		} else {
 			let path = condition.path;
 			if (path) {
-				if (path.not) {
-					this.condition.negated = true;
-					path = path.not;
-				}
 				this.condition.path = stringToRegex(path);
 			}
-			if (condition.query) this.condition.query = condition.query;
+			if (condition.query) {
+				for (let name in condition.query) {
+					condition.query[name] = stringToRegex(condition.query[name]);
+				}
+				this.condition.query = condition.query;
+			}
+			if (condition.headers) {
+				for (let name in condition.headers) {
+					condition.headers[name] = stringToRegex(condition.headers[name]);
+				}
+				this.condition.headers = condition.headers;
+			}
 		}
 		if (options instanceof Router) {
 			this.router = options;
@@ -206,6 +237,7 @@ class Rule {
 		if (options.origin) {
 			this.actions.setProxying(options.origin);
 		}
+		if (options.headers) this.actions.headers = options.headers;
 
 		if (typeof options === 'function') {
 			this.handler = options;
@@ -213,24 +245,32 @@ class Rule {
 			Object.assign(this.actions, options);
 		}
 	}
+
+	/**
+	 * Determine if the rule matches the request
+	 * @param request
+	 * @return {boolean}
+	 */
 	match(request) {
 		if (this.condition == null) return true;
 		if (this.condition.path) {
-			if (Boolean(this.condition.path.test(request.url)) === Boolean(this.condition.path.negated)) {
+			if (!this.condition.path.test(request.url)) {
 				return false;
 			}
 		}
-		if (this.condition.query) {
-			let query = new URLSearchParams(request.url);
-			for (let key in this.condition.query) {
-				if (query.get(key) !== this.condition.query[key]) {
+		const query = this.condition.query;
+		if (query) {
+			let requestQuery = new URLSearchParams(request.url);
+			for (let key in query) {
+				if (!query[key].test(requestQuery.get(key))) {
 					return false;
 				}
 			}
 		}
-		if (this.condition.headers) {
-			for (let key in this.condition.headers) {
-				if (request.headers.get(key) !== this.condition.headers[key]) {
+		const headers = this.condition.headers;
+		if (headers) {
+			for (let key in headers) {
+				if (!headers[key].test(request.headers.get(key))) {
 					return false;
 				}
 			}
@@ -280,9 +320,7 @@ class RequestActions {
 		this.caching = caching;
 	}
 	setProxying(origin) {
-		this.proxying = {
-			origin: origin.set_origin,
-		};
+		this.proxying = origin;
 	}
 	get proxy() {
 		let actions = this;
@@ -365,6 +403,13 @@ function stringToRegex(str) {
 				}) +
 				'$'
 		);
+	} else if (str.not) {
+		const regex = stringToRegex(str.not);
+		return {
+			test(value) {
+				return !stringToRegex(regex).test(value);
+			},
+		};
 	} else throw new TypeError('Unknown type of matching requests ' + str);
 }
 

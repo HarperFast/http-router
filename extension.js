@@ -4,11 +4,11 @@ exports.start = function (options = {}) {
 	let cacheHandler = getCacheHandler(options);
 	return {
 		async handleFile(js, url_path, file_path) {
-			if (file_path.includes('edgeio.config.')) {
+			if (file_path.includes('edgio.config.')) {
 				const moduleExports = (await import(file_path)).default;
 				for (let origin of moduleExports.origins || []) {
 					exports.origins.set(origin.name, {
-						hostname: origin.hosts?.[0]?.location?.[0]?.hostname,
+						hostname: origin.hosts?.[0]?.location?.[0]?.hostname ?? origin.hosts?.[0]?.location,
 						rejectUnauthorized: !origin.tls_verify?.allow_self_signed_certs,
 						servername: origin.tls_verify?.sni_hint_and_strict_san_check,
 						hostHeader: origin.override_host_header,

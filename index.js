@@ -1,6 +1,9 @@
 const { URLSearchParams } = require('node:url');
-const { origins } = require('./extension.js');
+const entryModule = require('./extension.js');
+const { origins } = entryModule;
 const { request: httpsRequest } = require('node:https');
+const { join } = require('node:path');
+const send = require('send');
 /**
  * The main router class for defining a set of routes and their handlers.
  */
@@ -196,6 +199,17 @@ class Router {
 						request._nodeResponse.setHeader('Cache-Control', `max-age=${caching.clientMaxAgeSeconds}`);
 					}
 				}
+				if (actions.servingStaticPath) {
+					return () =>
+						new Promise((resolve, reject) => {
+							send(request, join(entryModule.baseDir, actions.servingStaticPath), {
+								dotfiles: 'allow',
+							})
+								.pipe(request._nodeResponse)
+								.on('finish', () => resolve())
+								.on('error', reject);
+						});
+				}
 			}
 		}
 		return nextHandler;
@@ -254,7 +268,7 @@ class Rule {
 	match(request) {
 		if (this.condition == null) return true;
 		if (this.condition.path) {
-			if (!this.condition.path.test(request.url)) {
+			if (!this.condition.path.test(request.pathname)) {
 				return false;
 			}
 		}
@@ -310,6 +324,12 @@ class RequestActions {
 					nodeResponse.setHeader('Cache-Control', `max-age=${options.browser.maxAgeSeconds}`);
 				}
 			}
+		};
+	}
+	get serveStatic() {
+		let actions = this;
+		return (path) => {
+			actions.servingStaticPath = path;
 		};
 	}
 	setCaching(caching) {

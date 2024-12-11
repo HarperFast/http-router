@@ -99,23 +99,26 @@ class Router {
 				const proxying = actions.proxying;
 				if (proxying) {
 					// proxy the request, first get the origin hostname
-					const originName = typeof proxying === 'string' ? proxying : proxying.set_origin;
+					const originName = typeof proxying === 'string' ? proxying : (proxying.set_origin ?? proxying.origin);
 					const originConfig = getOriginConfig(originName);
 					const originHostname = originConfig.hostname;
 					if (!originHostname) throw new Error('No hostname found for origin');
-					let path = request.url;
+					let url = request.url;
 					if (actions.url?.url_rewrite) {
 						for (let rewrite of actions.url.url_rewrite) {
 							if (rewrite.syntax === 'regexp') {
-								path = path.replace(new RegExp(rewrite.source), rewrite.destination);
+								url = url.replace(new RegExp(rewrite.source), rewrite.destination);
 							}
 						}
+					} else if (proxying.path) {
+						const param = rule.condition.path.exec(request.pathname)[1];
+						url = proxying.path.replace(/:[\w\*\+]+/, param) + request.url.slice(request.pathname.length);
 					}
 					const headers = request.headers.asObject;
 					if (originConfig.hostHeader) headers.Host = originConfig.hostHeader;
 					const requestOptions = {
 						hostname: originHostname,
-						path,
+						path: url,
 						method: request.method,
 						headers: request.headers.asObject,
 					};

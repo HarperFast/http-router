@@ -34,10 +34,7 @@ class Router {
 		return this;
 	}
 	fallback(options) {
-		const fallback = new Rule(null, options);
-		fallback.isFallback = true;
-		this.rules.push(fallback);
-		return this;
+		return this.match(null, options);
 	}
 	always(options) {
 		return this.match(null, options);

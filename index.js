@@ -23,6 +23,20 @@ for (let path of PATHS_TO_PATHS_FILES) {
 		console.error(`Could not read ${path} manifest`, error);
 	}
 }
+
+const ROUTE_MANIFEST = '.next/routes-manifest.json';
+
+try {
+	if (existsSync(ROUTE_MANIFEST)) {
+		const routesManifest = JSON.parse(readFileSync(ROUTE_MANIFEST, 'utf8'));
+		for (const route in routesManifest.dynamicRoutes) {
+			manifestedPaths.push(new RegExp(route.regex));
+		}
+	}
+} catch (error) {
+	console.error('Could not read routes manifest', error);
+}
+
 /**
  * The main router class for defining a set of routes and their handlers.
  */

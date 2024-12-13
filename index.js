@@ -144,20 +144,34 @@ class Router {
 					if (originConfig.servername) requestOptions.servername = originConfig.servername;
 					return () => {
 						return new Promise((resolve, reject) => {
-							let proxiedRequest = httpsRequest(requestOptions, (response) => {
-								nodeResponse.writeHead(response.statusCode, response.statusMessage, response.headers);
-								response
-									.pipe(nodeResponse)
-									.on('finish', () => {
-										resolve();
-									})
-									.on('error', reject);
-							}).on('error', (error) => {
-								reject(error);
-							});
-							if (request.method !== 'GET' && request.method !== 'HEAD') {
-								request._nodeRequest.pipe(proxiedRequest);
-							} else proxiedRequest.end();
+							let maxRedirects = 5;
+							function sendRequest() {
+								let proxiedRequest = httpsRequest(requestOptions, (response) => {
+									if (
+										(response.statusCode > 300 || response.statusCode < 310) &&
+										response.headers.location &&
+										maxRedirects-- > 0
+									) {
+										const url = new URL(response.headers.location);
+										requestOptions.path = url.pathname + url.search;
+										requestOptions.hostname = url.hostname;
+										return sendRequest();
+									}
+									nodeResponse.writeHead(response.statusCode, response.statusMessage, response.headers);
+									response
+										.pipe(nodeResponse)
+										.on('finish', () => {
+											resolve();
+										})
+										.on('error', reject);
+								}).on('error', (error) => {
+									reject(error);
+								});
+								if (request.method !== 'GET' && request.method !== 'HEAD') {
+									request._nodeRequest.pipe(proxiedRequest);
+								} else proxiedRequest.end();
+							}
+							sendRequest();
 						});
 					};
 				}

@@ -217,7 +217,9 @@ class Router {
 				if (actions.servingStaticPath) {
 					return () =>
 						new Promise((resolve, reject) => {
-							send(request, join(entryModule.baseDir, actions.servingStaticPath), {
+							const param = rule.condition.path.exec(request.pathname)[1];
+							let path = actions.servingStaticPath.replace(/:[\w\*\+]+/, param).replace(/\.\./, '');
+							send(request, join(entryModule.baseDir, path), {
 								dotfiles: 'allow',
 							})
 								.pipe(nodeResponse)

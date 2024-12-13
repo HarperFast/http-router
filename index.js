@@ -344,7 +344,7 @@ class RequestActions {
 					maxAgeSeconds: options.edge.maxAgeSeconds,
 					staleWhileRevalidateSeconds: options.edge.staleWhileRevalidateSeconds,
 				};
-			}
+			} else actions.caching = null;
 			if (options.browser) {
 				if (options.browser.maxAgeSeconds != null) {
 					const nodeResponse = this.request._nodeResponse;

@@ -4,20 +4,24 @@ const { origins } = entryModule;
 const { request: httpsRequest } = require('node:https');
 const { join } = require('node:path');
 const send = require('send');
-const { readFileSync } = require('node:fs');
+const { readFileSync, existsSync } = require('node:fs');
 
+const PATHS_TO_PATHS_FILES = ['/.next/serverless/pages-manifest.json', '/.next/server/app-paths-routes-manifest.json'];
 let manifestedPaths = [];
-try {
-	const pagesManifest = JSON.parse(readFileSync('.next/serverless/pages-manifest.json', 'utf8'));
-	for (let key in pagesManifest) {
-		key = key.replace(/\[[^\]]+\]/, (match) => {
-			if (match.startsWith('[...')) return '.*';
-			else return '[^/]+';
-		});
-		manifestedPaths.push(new RegExp(`^${key}$`));
+for (let path of PATHS_TO_PATHS_FILES) {
+	try {
+		if (!existsSync(path)) continue;
+		const pagesManifest = JSON.parse(readFileSync(path, 'utf8'));
+		for (let key in pagesManifest) {
+			key = key.replace(/\[[^\]]+\]/, (match) => {
+				if (match.startsWith('[...')) return '.*';
+				else return '[^/]+';
+			});
+			manifestedPaths.push(new RegExp(`^${key}$`));
+		}
+	} catch (error) {
+		console.error(`Could not read ${path} manifest`, error);
 	}
-} catch (error) {
-	console.error('Could not read .next pages manifest', error);
 }
 /**
  * The main router class for defining a set of routes and their handlers.
@@ -218,7 +222,9 @@ class Router {
 					return () =>
 						new Promise((resolve, reject) => {
 							const param = rule.condition.path.exec(request.pathname)[1];
-							let path = actions.servingStaticPath.replace(/:[\w\*\+]+/, param).replace(/\.\./, '');
+							let path = decodeURIComponent(
+								actions.servingStaticPath.replace(/:[\w\*\+]+/, param).replace(/\.\.\//, '')
+							);
 							send(request, join(entryModule.baseDir, path), {
 								dotfiles: 'allow',
 							})

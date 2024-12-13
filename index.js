@@ -6,7 +6,7 @@ const { join } = require('node:path');
 const send = require('send');
 const { readFileSync, existsSync } = require('node:fs');
 
-const PATHS_TO_PATHS_FILES = ['/.next/serverless/pages-manifest.json', '/.next/server/app-paths-routes-manifest.json'];
+const PATHS_TO_PATHS_FILES = ['.next/serverless/pages-manifest.json', '.next/server/app-paths-routes-manifest.json'];
 let manifestedPaths = [];
 for (let path of PATHS_TO_PATHS_FILES) {
 	try {

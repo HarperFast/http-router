@@ -4,6 +4,21 @@ const { origins } = entryModule;
 const { request: httpsRequest } = require('node:https');
 const { join } = require('node:path');
 const send = require('send');
+const { readFileSync } = require('node:fs');
+
+let manifestedPaths = [];
+try {
+	const pagesManifest = JSON.parse(readFileSync('.next/serverless/pages-manifest.json', 'utf8'));
+	for (let key in pagesManifest) {
+		key = key.replace(/\[[^\]]+\]/, (match) => {
+			if (match.startsWith('[...')) return '.*';
+			else return '[^/]+';
+		});
+		manifestedPaths.push(new RegExp(`^${key}$`));
+	}
+} catch (error) {
+	console.error('Could not read .next pages manifest', error);
+}
 /**
  * The main router class for defining a set of routes and their handlers.
  */
@@ -18,7 +33,7 @@ class Router {
 		return this;
 	}
 	use() {
-		// I think this was just for setting the default route
+		this.rules.push(new Rule(null, { useNext: true }));
 		return this;
 	}
 
@@ -69,8 +84,9 @@ class Router {
 	 * before routing to the main handler function.
 	 * @param request
 	 */
-	onRequest(request, nextHandler) {
+	async onRequest(request, nextHandler) {
 		let foundRule = false;
+		const nodeResponse = request._nodeResponse;
 		for (let rule of this.rules) {
 			if (rule.match(request)) {
 				if (rule.isFallback && foundRule) continue;
@@ -122,7 +138,6 @@ class Router {
 					requestOptions.rejectUnauthorized = originConfig.rejectUnauthorized;
 					if (originConfig.hostHeader) requestOptions.headers.host = originConfig.hostHeader;
 					if (originConfig.servername) requestOptions.servername = originConfig.servername;
-					const nodeResponse = request._nodeResponse;
 					return () => {
 						return new Promise((resolve, reject) => {
 							let proxiedRequest = httpsRequest(requestOptions, (response) => {
@@ -147,22 +162,22 @@ class Router {
 					if (headers.set_response_headers) {
 						for (let key in headers.set_response_headers) {
 							let value = headers.set_response_headers[key];
-							request._nodeResponse.setHeader(key, value);
+							nodeResponse.setHeader(key, value);
 						}
 					}
 					if (headers.add_response_headers) {
 						for (let key in headers.add_response_headers) {
 							let value = headers.add_response_headers[key];
-							request._nodeResponse.setHeader(key, value);
+							nodeResponse.setHeader(key, value);
 						}
 					}
 					if (headers.remove_response_headers) {
 						for (let key in headers.remove_response_headers) {
-							request._nodeResponse.removeHeader(key);
+							nodeResponse.removeHeader(key);
 						}
 					}
 					if (headers.set_client_ip_custom_header) {
-						request._nodeResponse.setHeader(headers.set_client_ip_custom_header, request.ip);
+						nodeResponse.setHeader(headers.set_client_ip_custom_header, request.ip);
 					}
 				}
 				if (actions.caching) {
@@ -205,10 +220,15 @@ class Router {
 							send(request, join(entryModule.baseDir, actions.servingStaticPath), {
 								dotfiles: 'allow',
 							})
-								.pipe(request._nodeResponse)
+								.pipe(nodeResponse)
 								.on('finish', () => resolve())
 								.on('error', reject);
 						});
+				}
+				if (actions.useNext) {
+					if (manifestedPaths.some((path) => path.test(request.pathname))) {
+						return nextHandler;
+					}
 				}
 			}
 		}

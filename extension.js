@@ -37,7 +37,8 @@ exports.start = function (options = {}) {
 				let routes = (await import(file_path)).default;
 				if (typeof routes === 'function') routes = routes();
 				const servers = options.server.http(async (request, nextHandler) => {
-					const handler = routes.onRequest(request, nextHandler); // get the handler for the request, that has/will
+					const handler = await routes.onRequest(request, nextHandler);
+					// get the handler for the request, that has/will
 					// process the request
 					// if we have a cache key, we can attempt to resolve the request from the cache
 					if (request.cacheKey) {

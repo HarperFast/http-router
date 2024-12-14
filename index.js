@@ -113,6 +113,65 @@ class Router {
 				if (actions.redirecting) {
 					return () => ({ status: actions.redirecting.status, headers: { Location: actions.redirecting.location } });
 				}
+				const headers = actions.headers;
+				if (headers) {
+					if (headers.set_response_headers) {
+						for (let key in headers.set_response_headers) {
+							let value = headers.set_response_headers[key];
+							nodeResponse.setHeader(key, value);
+						}
+					}
+					if (headers.add_response_headers) {
+						for (let key in headers.add_response_headers) {
+							let value = headers.add_response_headers[key];
+							nodeResponse.setHeader(key, value);
+						}
+					}
+					if (headers.remove_response_headers) {
+						for (let key in headers.remove_response_headers) {
+							nodeResponse.removeHeader(key);
+						}
+					}
+					if (headers.set_client_ip_custom_header) {
+						nodeResponse.setHeader(headers.set_client_ip_custom_header, request.ip);
+					}
+				}
+				if (actions.caching) {
+					const caching = actions.caching;
+					if (caching.maxAgeSeconds || caching.staleWhileRevalidateSeconds) {
+						// enable caching, set a cache key
+						let additionalParts;
+						if (caching.cache_key?.include_query_params) {
+							additionalParts = [];
+							new URLSearchParams(request.url).forEach((value, key) => {
+								if (rule.caching.cache_key.include_query_params.includes(key)) {
+									additionalParts.push(`${key}=${value}`);
+								}
+							});
+						}
+						if (caching.cache_key?.include_headers) {
+							additionalParts = additionalParts ?? [];
+							for (let header of caching.cache_key?.include_headers) {
+								additionalParts.push(`${header}=${request.headers.get('header')}`);
+							}
+						}
+						if (caching.cache_key?.include_cookies) {
+							additionalParts = additionalParts ?? [];
+							for (let cookie of caching.cache_key?.include_cookies) {
+								additionalParts.push(`${cookie}=${request.headers.get('cookie')}`);
+							}
+						}
+						request.maxAgeSeconds = caching.maxAgeSeconds;
+						request.staleWhileRevalidateSeconds = caching.staleWhileRevalidateSeconds;
+						request.cacheKey = request.pathname + (additionalParts ? '?' + additionalParts.join('&') : '');
+						// let the caching layer handle the headers
+					}
+					if (caching.clientMaxAgeSeconds) {
+						request._nodeResponse.setHeader('Cache-Control', `max-age=${caching.clientMaxAgeSeconds}`);
+					}
+				} else if (actions.caching === false) {
+					request.cacheKey = undefined;
+				}
 				const proxying = actions.proxying;
 				if (proxying) {
 					// proxy the request, first get the origin hostname
@@ -175,63 +234,7 @@ class Router {
 						});
 					};
 				}
-				const headers = actions.headers;
-				if (headers) {
-					if (headers.set_response_headers) {
-						for (let key in headers.set_response_headers) {
-							let value = headers.set_response_headers[key];
-							nodeResponse.setHeader(key, value);
-						}
-					}
-					if (headers.add_response_headers) {
-						for (let key in headers.add_response_headers) {
-							let value = headers.add_response_headers[key];
-							nodeResponse.setHeader(key, value);
-						}
-					}
-					if (headers.remove_response_headers) {
-						for (let key in headers.remove_response_headers) {
-							nodeResponse.removeHeader(key);
-						}
-					}
-					if (headers.set_client_ip_custom_header) {
-						nodeResponse.setHeader(headers.set_client_ip_custom_header, request.ip);
-					}
-				}
-				if (actions.caching) {
-					const caching = actions.caching;
-					if (caching.maxAgeSeconds || caching.staleWhileRevalidateSeconds) {
-						// enable caching, set a cache key
-						let additionalParts;
-						if (caching.cache_key?.include_query_params) {
-							additionalParts = [];
-							new URLSearchParams(request.url).forEach((value, key) => {
-								if (rule.caching.cache_key.include_query_params.includes(key)) {
-									additionalParts.push(`${key}=${value}`);
-								}
-							});
-						}
-						if (caching.cache_key?.include_headers) {
-							additionalParts = additionalParts ?? [];
-							for (let header of caching.cache_key?.include_headers) {
-								additionalParts.push(`${header}=${request.headers.get('header')}`);
-							}
-						}
-						if (caching.cache_key?.include_cookies) {
-							additionalParts = additionalParts ?? [];
-							for (let cookie of caching.cache_key?.include_cookies) {
-								additionalParts.push(`${cookie}=${request.headers.get('cookie')}`);
-							}
-						}
-						request.maxAgeSeconds = caching.maxAgeSeconds;
-						request.staleWhileRevalidateSeconds = caching.staleWhileRevalidateSeconds;
-						request.cacheKey = request.pathname + (additionalParts ? '?' + additionalParts.join('&') : '');
-						// let the caching layer handle the headers
-					}
-					if (caching.clientMaxAgeSeconds) {
-						request._nodeResponse.setHeader('Cache-Control', `max-age=${caching.clientMaxAgeSeconds}`);
-					}
-				}
+
 				if (actions.servingStaticPath) {
 					return () =>
 						new Promise((resolve, reject) => {
@@ -358,7 +361,7 @@ class RequestActions {
 					maxAgeSeconds: options.edge.maxAgeSeconds,
 					staleWhileRevalidateSeconds: options.edge.staleWhileRevalidateSeconds,
 				};
-			} else actions.caching = null;
+			} else actions.caching = false;
 			if (options.browser) {
 				if (options.browser.maxAgeSeconds != null) {
 					const nodeResponse = this.request._nodeResponse;

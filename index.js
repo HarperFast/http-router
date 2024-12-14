@@ -3,6 +3,7 @@ const entryModule = require('./extension.js');
 const { origins } = entryModule;
 const { request: httpsRequest } = require('node:https');
 const { join } = require('node:path');
+const { CustomCacheKey } = require('./CustomCacheKey'); // to re-export
 const send = require('send');
 const { readFileSync, existsSync } = require('node:fs');
 
@@ -140,30 +141,42 @@ class Router {
 					const caching = actions.caching;
 					if (caching.maxAgeSeconds || caching.staleWhileRevalidateSeconds) {
 						// enable caching, set a cache key
-						let additionalParts;
+						let keyParts = [request.pathname];
 						if (caching.cache_key?.include_query_params) {
-							additionalParts = [];
-							new URLSearchParams(request.url).forEach((value, key) => {
-								if (rule.caching.cache_key.include_query_params.includes(key)) {
-									additionalParts.push(`${key}=${value}`);
-								}
-							});
+							const queryStart = request.url.indexOf('?');
+							if (queryStart !== -1) {
+								const query = request.url.slice(queryStart + 1);
+								new URLSearchParams(query).forEach((value, key) => {
+									if (caching.cache_key.include_query_params.includes(key)) {
+										keyParts.push(`${key}=${value}`);
+									}
+								});
+							}
+						} else {
+							// this is a bit of a mystery to me, do we include the query params in the cache key or not if
+							// they're not specified? (using request.url instead of request.pathname will include the query params)
+							keyParts = [request.url];
 						}
 						if (caching.cache_key?.include_headers) {
-							additionalParts = additionalParts ?? [];
+							keyParts = keyParts ?? [];
 							for (let header of caching.cache_key?.include_headers) {
-								additionalParts.push(`${header}=${request.headers.get('header')}`);
+								keyParts.push(`${header}=${request.headers.get(header)}`);
 							}
 						}
 						if (caching.cache_key?.include_cookies) {
-							additionalParts = additionalParts ?? [];
-							for (let cookie of caching.cache_key?.include_cookies) {
-								additionalParts.push(`${cookie}=${request.headers.get('cookie')}`);
+							keyParts = keyParts ?? [];
+							const cookie = request.headers.get('cookie');
+							const cookies = cookie?.split(/;\s+/) || [];
+							for (const cookie of cookies || []) {
+								const [name, value] = cookie.split('=');
+								if (caching.cache_key.include_cookies.includes(name)) {
+									keyParts.push(`${name}=${value}`);
+								}
 							}
 						}
 						request.maxAgeSeconds = caching.maxAgeSeconds;
 						request.staleWhileRevalidateSeconds = caching.staleWhileRevalidateSeconds;
-						request.cacheKey = request.pathname + (additionalParts ? '?' + additionalParts.join('&') : '');
+						request.cacheKey = keyParts.join('&');
 						// let the caching layer handle the headers
 					}
 					if (caching.clientMaxAgeSeconds) {
@@ -261,6 +274,7 @@ class Router {
 	}
 }
 exports.Router = Router;
+exports.CustomCacheKey = CustomCacheKey;
 class Rule {
 	condition = {};
 	actions = new RequestActions();
@@ -361,13 +375,19 @@ class RequestActions {
 					maxAgeSeconds: options.edge.maxAgeSeconds,
 					staleWhileRevalidateSeconds: options.edge.staleWhileRevalidateSeconds,
 				};
-			} else actions.caching = false;
+			} else if (options.edge === false) actions.caching = false;
 			if (options.browser) {
 				if (options.browser.maxAgeSeconds != null) {
 					const nodeResponse = this.request._nodeResponse;
 					nodeResponse.wroteHeaders = true;
 					nodeResponse.setHeader('Cache-Control', `max-age=${options.browser.maxAgeSeconds}`);
 				}
+			} else if (options.browser === false) {
+				this.request._nodeResponse.setHeader('Cache-Control', `no-store, no-cache`);
+			}
+			if (options.key) {
+				if (!actions.caching) actions.caching = {};
+				actions.caching.cache_key = options.key;
 			}
 		};
 	}

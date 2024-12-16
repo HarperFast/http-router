@@ -398,7 +398,10 @@ class RequestActions {
 		};
 	}
 	setCaching(caching) {
-		if (caching.max_age) caching.maxAgeSeconds = convertToMS(caching.max_age);
+		if (caching.max_age)
+			caching.maxAgeSeconds = convertToMS(
+				typeof caching.max_age === 'object' ? caching.max_age['200'] : caching.max_age
+			);
 		if (caching.client_max_age) caching.clientMaxAgeSeconds = convertToMS(caching.client_max_age);
 		if (caching.stale_while_revalidate)
 			caching.staleWhileRevalidateSeconds = convertToMS(caching.stale_while_revalidate);

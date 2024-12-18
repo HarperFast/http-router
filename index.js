@@ -7,23 +7,45 @@ const { CustomCacheKey } = require('./CustomCacheKey'); // to re-export
 const send = require('send');
 const { readFileSync, existsSync } = require('node:fs');
 
+const manifest = new Map();
+
+// Handle route manifest first since it contains the dynamic routes in Next.js v9
+const ROUTE_MANIFEST = '.next/routes-manifest.json';
+
+try {
+	if (existsSync(ROUTE_MANIFEST)) {
+		const routesManifest = JSON.parse(readFileSync(ROUTE_MANIFEST, 'utf8'));
+		
+		for (const route of routesManifest.dynamicRoutes ?? []) {
+			manifest.set(route.page, new RegExp(route.regex));
+		}
+
+		// Later Next.js versions also have static routes in the route manifest
+		for (const route of routesManifest.staticRoutes ?? []) {
+			manifest.set(route.page, new RegExp(route.regex));
+		}
+	}
+} catch (error) {
+	console.error('Could not read routes manifest', error);
+}
+
+// Anything not in the route manifest will be in the pages manifest
 const PATHS_TO_PATHS_FILES = ['.next/serverless/pages-manifest.json', '.next/server/app-paths-routes-manifest.json'];
-let manifestedPaths = [];
+
 for (let path of PATHS_TO_PATHS_FILES) {
 	try {
 		if (!existsSync(path)) continue;
 		const pagesManifest = JSON.parse(readFileSync(path, 'utf8'));
 		for (let key in pagesManifest) {
-			key = key.replace(/\[[^\]]+\]/, (match) => {
-				if (match.startsWith('[...')) return '.*';
-				else return '[^/]+';
-			});
-			manifestedPaths.push(new RegExp(`^${key}$`));
+			if (!manifest.has(key)) {
+				manifest.set(key, new RegExp(`^${key}$`));
+			}
 		}
 	} catch (error) {
 		console.error(`Could not read ${path} manifest`, error);
 	}
 }
+
 /**
  * The main router class for defining a set of routes and their handlers.
  */
@@ -264,7 +286,7 @@ class Router {
 						});
 				}
 				if (actions.useNext) {
-					if (manifestedPaths.some((path) => path.test(request.pathname))) {
+					if (Array.from(manifest.values()).some((path) => path.test(request.pathname))) {
 						return nextHandler;
 					}
 				}

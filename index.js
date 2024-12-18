@@ -6,6 +6,7 @@ const { join } = require('node:path');
 const { CustomCacheKey } = require('./CustomCacheKey'); // to re-export
 const send = require('send');
 const { readFileSync, existsSync } = require('node:fs');
+const { Readable } = require('stream');
 
 const manifest = new Map();
 
@@ -52,10 +53,12 @@ for (let path of PATHS_TO_PATHS_FILES) {
 class Router {
 	rules = [];
 	get(path, options) {
+		if (path.path) path = path.path;
 		this.rules.push(new Rule({ path, method: 'GET' }, options));
 		return this;
 	}
 	post(path, options) {
+		if (path.path) path = path.path;
 		this.rules.push(new Rule({ path, method: 'POST' }, options));
 		return this;
 	}
@@ -226,23 +229,26 @@ class Router {
 						url = proxying.path.replace(/:[\w\*\+]+/, param) + request.url.slice(request.pathname.length);
 					}
 					const headers = request.headers.asObject;
+					delete headers.host;
+					delete headers.Host;
 					if (originConfig.hostHeader) headers.Host = originConfig.hostHeader;
 					const requestOptions = {
 						hostname: originHostname,
 						path: url,
 						method: request.method,
-						headers: request.headers.asObject,
+						headers,
 					};
 					requestOptions.rejectUnauthorized = originConfig.rejectUnauthorized;
-					if (originConfig.hostHeader) requestOptions.headers.host = originConfig.hostHeader;
 					if (originConfig.servername) requestOptions.servername = originConfig.servername;
 					return () => {
 						return new Promise((resolve, reject) => {
 							let maxRedirects = 5;
+							let requestBody;
 							function sendRequest() {
 								let proxiedRequest = httpsRequest(requestOptions, (response) => {
 									if (
-										(response.statusCode > 300 || response.statusCode < 310) &&
+										response.statusCode > 300 &&
+										response.statusCode < 310 &&
 										response.headers.location &&
 										maxRedirects-- > 0
 									) {
@@ -262,7 +268,14 @@ class Router {
 									reject(error);
 								});
 								if (request.method !== 'GET' && request.method !== 'HEAD') {
-									request._nodeRequest.pipe(proxiedRequest, { end: true });
+									if (requestBody) proxiedRequest.end(requestBody);
+									else {
+										streamToBuffer(request._nodeRequest).then((buffer) => {
+											requestBody = buffer;
+											console.warn(`Sending proxied request body for ${request.url}`, buffer.toString());
+											proxiedRequest.end(requestBody);
+										});
+									}
 								} else proxiedRequest.end();
 							}
 							sendRequest();
@@ -546,4 +559,13 @@ function convertToMS(interval) {
 		}
 	}
 	return seconds * 1000;
+}
+
+function streamToBuffer(stream) {
+	return new Promise((resolve, reject) => {
+		const buffers = [];
+		stream.on('data', (data) => buffers.push(data));
+		stream.on('end', () => resolve(Buffer.concat(buffers)));
+		stream.on('error', reject);
+	});
 }

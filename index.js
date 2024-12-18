@@ -240,7 +240,7 @@ class Router {
 									reject(error);
 								});
 								if (request.method !== 'GET' && request.method !== 'HEAD') {
-									request._nodeRequest.pipe(proxiedRequest);
+									request._nodeRequest.pipe(proxiedRequest, { end: true });
 								} else proxiedRequest.end();
 							}
 							sendRequest();

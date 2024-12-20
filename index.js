@@ -16,7 +16,7 @@ const ROUTE_MANIFEST = '.next/routes-manifest.json';
 try {
 	if (existsSync(ROUTE_MANIFEST)) {
 		const routesManifest = JSON.parse(readFileSync(ROUTE_MANIFEST, 'utf8'));
-		
+
 		for (const route of routesManifest.dynamicRoutes ?? []) {
 			manifest.set(route.page, new RegExp(route.regex));
 		}
@@ -246,16 +246,14 @@ class Router {
 							let requestBody;
 							function sendRequest() {
 								let proxiedRequest = httpsRequest(requestOptions, (response) => {
-									if (
-										response.statusCode > 300 &&
-										response.statusCode < 310 &&
-										response.headers.location &&
-										maxRedirects-- > 0
-									) {
-										const url = new URL(response.headers.location);
-										requestOptions.path = url.pathname + url.search;
-										requestOptions.hostname = url.hostname;
-										return sendRequest();
+									if (actions.update_response_headers) {
+										for (let { name, match, replacement } of actions.update_response_headers || []) {
+											if (!(match instanceof RegExp)) match = new RegExp(match);
+											let previousValue = response.headers[name];
+											if (previousValue) {
+												response.headers[name] = previousValue.replace(match, replacement);
+											}
+										}
 									}
 									nodeResponse.writeHead(response.statusCode, response.statusMessage, response.headers);
 									response
@@ -461,8 +459,10 @@ class RequestActions {
 		};
 	}
 	get updateResponseHeader() {
-		return (key, value) => {
-			// ??
+		let actions = this;
+		return (name, match, replacement) => {
+			actions.update_response_headers = actions.update_response_headers || [];
+			actions.update_response_headers.push({ name, match, replacement });
 		};
 	}
 	async run(handler) {

@@ -1,6 +1,6 @@
 {
 	"name": "@harperdb/http-router",
-	"version": "0.1.17",
+	"version": "0.1.18",
 	"type": "commonjs",
 	"main": "index.js",
 	"description": "A HarperDB Component for routing requests using the Edgio router API",

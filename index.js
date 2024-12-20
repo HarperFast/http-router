@@ -117,6 +117,7 @@ class Router {
 	async onRequest(request, nextHandler) {
 		let foundRule = false;
 		const nodeResponse = request._nodeResponse;
+		let responseHeaders = {};
 		for (let rule of this.rules) {
 			if (rule.match(request)) {
 				if (rule.isFallback && foundRule) continue;
@@ -136,31 +137,34 @@ class Router {
 				} else {
 					actions = rule.actions;
 				}
-				if (actions.redirecting) {
-					return () => ({ status: actions.redirecting.status, headers: { Location: actions.redirecting.location } });
-				}
 				const headers = actions.headers;
 				if (headers) {
 					if (headers.set_response_headers) {
 						for (let key in headers.set_response_headers) {
 							let value = headers.set_response_headers[key];
-							nodeResponse.setHeader(key, value);
+							responseHeaders[key] = value;
 						}
 					}
 					if (headers.add_response_headers) {
 						for (let key in headers.add_response_headers) {
 							let value = headers.add_response_headers[key];
-							nodeResponse.setHeader(key, value);
+							responseHeaders[key] = value;
 						}
 					}
 					if (headers.remove_response_headers) {
 						for (let key in headers.remove_response_headers) {
-							nodeResponse.removeHeader(key);
+							delete responseHeaders[key];
 						}
 					}
 					if (headers.set_client_ip_custom_header) {
-						nodeResponse.setHeader(headers.set_client_ip_custom_header, request.ip);
+						responseHeaders[headers.set_client_ip_custom_header] = request.ip;
 					}
+				}
+				if (actions.redirecting) {
+					return () => ({
+						status: actions.redirecting.status,
+						headers: { ...responseHeaders, Location: actions.redirecting.location },
+					});
 				}
 				if (actions.caching) {
 					const caching = actions.caching;
@@ -205,7 +209,7 @@ class Router {
 						// let the caching layer handle the headers
 					}
 					if (caching.clientMaxAgeSeconds) {
-						request._nodeResponse.setHeader('Cache-Control', `max-age=${caching.clientMaxAgeSeconds}`);
+						responseHeaders['Cache-Control'] = `max-age=${caching.clientMaxAgeSeconds}`;
 					}
 				} else if (actions.caching === false) {
 					request.cacheKey = undefined;
@@ -255,7 +259,10 @@ class Router {
 											}
 										}
 									}
-									nodeResponse.writeHead(response.statusCode, response.statusMessage, response.headers);
+									nodeResponse.writeHead(response.statusCode, response.statusMessage, {
+										...responseHeaders,
+										...response.headers,
+									});
 									response
 										.pipe(nodeResponse)
 										.on('finish', () => {
@@ -288,6 +295,9 @@ class Router {
 							let path = decodeURIComponent(
 								actions.servingStaticPath.replace(/:[\w\*\+]+/, param).replace(/\.\.\//, '')
 							);
+							for (let key in responseHeaders) {
+								nodeResponse.setHeader(key, responseHeaders[key]);
+							}
 							send(request, join(entryModule.baseDir, path), {
 								dotfiles: 'allow',
 							})
@@ -298,6 +308,9 @@ class Router {
 				}
 				if (actions.useNext) {
 					if (Array.from(manifest.values()).some((path) => path.test(request.pathname))) {
+						for (let key in responseHeaders) {
+							nodeResponse.setHeader(key, responseHeaders[key]);
+						}
 						return nextHandler;
 					}
 				}
@@ -394,10 +407,13 @@ class RequestActions {
 	get setResponseHeader() {
 		// This should also work with middleware that returns a response object, but that's not how the
 		// next.js middleware works
-		const nodeResponse = this.request._nodeResponse;
+		let actions = this;
 		return (key, value) => {
-			nodeResponse.wroteHeaders = true;
-			nodeResponse.setHeader(key, value);
+			const headers = actions.headers || (actions.headers = {});
+			if (headers) {
+				if (!headers.set_response_headers) headers.set_response_headers = {};
+				headers.set_response_headers[key] = value;
+			}
 		};
 	}
 	get cache() {
@@ -411,12 +427,10 @@ class RequestActions {
 			} else if (options.edge === false) actions.caching = false;
 			if (options.browser) {
 				if (options.browser.maxAgeSeconds != null) {
-					const nodeResponse = this.request._nodeResponse;
-					nodeResponse.wroteHeaders = true;
-					nodeResponse.setHeader('Cache-Control', `max-age=${options.browser.maxAgeSeconds}`);
+					actions.setResponseHeader('Cache-Control', `max-age=${options.browser.maxAgeSeconds}`);
 				}
 			} else if (options.browser === false) {
-				this.request._nodeResponse.setHeader('Cache-Control', `no-store, no-cache`);
+				actions.setResponseHeader('Cache-Control', `no-store, no-cache`);
 			}
 			if (options.key) {
 				if (!actions.caching) actions.caching = {};

@@ -237,6 +237,7 @@ class Router {
 					delete headers.Host;
 					if (originConfig.hostHeader) headers.Host = originConfig.hostHeader;
 					const requestOptions = {
+						timeout: 60000,
 						hostname: originHostname,
 						path: url,
 						method: request.method,
@@ -246,11 +247,16 @@ class Router {
 					if (originConfig.servername) requestOptions.servername = originConfig.servername;
 					return () => {
 						return new Promise((resolve, reject) => {
-							let maxRedirects = 5;
-							let requestBody;
-							function sendRequest() {
+							try {
 								let proxiedRequest = httpsRequest(requestOptions, (response) => {
+									logger.info(
+										'Received proxied response for',
+										request.url,
+										response.statusCode,
+										JSON.stringify(response.headers)
+									);
 									if (actions.update_response_headers) {
+										// this is a series of regular expression replacements, applied successively
 										for (let { name, match, replacement } of actions.update_response_headers || []) {
 											if (!(match instanceof RegExp)) match = new RegExp(match);
 											let previousValue = response.headers[name];
@@ -259,31 +265,40 @@ class Router {
 											}
 										}
 									}
-									nodeResponse.writeHead(response.statusCode, response.statusMessage, {
+									const headers = {
 										...responseHeaders,
 										...response.headers,
-									});
+									};
+									delete headers.connection;
+									logger.info(
+										`Returning proxied response for ${request.url} from ${originHostname}`,
+										JSON.stringify(headers)
+									);
+									nodeResponse.writeHead(response.statusCode, response.statusMessage, headers);
 									response
 										.pipe(nodeResponse)
 										.on('finish', () => {
 											resolve();
+											logger.info(`Finished proxied response for ${request.url}`);
 										})
-										.on('error', reject);
+										.on('error', (error) => {
+											logger.warn(`Error in sending proxied body ${request.url}`, error);
+											reject(error);
+										});
 								}).on('error', (error) => {
+									logger.warn(`Error in proxying request ${request.url}`, error);
 									reject(error);
 								});
+								logger.info(`Sending proxied request for ${request.url} to ${originHostname}`);
 								if (request.method !== 'GET' && request.method !== 'HEAD') {
-									if (requestBody) proxiedRequest.end(requestBody);
-									else {
-										streamToBuffer(request._nodeRequest).then((buffer) => {
-											requestBody = buffer;
-											console.warn(`Sending proxied request body for ${request.url}`, buffer.toString());
-											proxiedRequest.end(requestBody);
-										});
-									}
+									streamToBuffer(request._nodeRequest).then((buffer) => {
+										proxiedRequest.end(buffer);
+									});
 								} else proxiedRequest.end();
+							} catch (error) {
+								logger.warn(`Error preparing proxying request ${request.url}`, error);
+								reject(error);
 							}
-							sendRequest();
 						});
 					};
 				}

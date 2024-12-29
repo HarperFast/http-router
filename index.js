@@ -168,6 +168,7 @@ class Router {
 				}
 				if (actions.caching) {
 					const caching = actions.caching;
+					let cacheControlDirectives = [];
 					if (caching.maxAgeSeconds || caching.staleWhileRevalidateSeconds) {
 						// enable caching, set a cache key
 						let keyParts = [request.pathname];
@@ -205,12 +206,17 @@ class Router {
 						}
 						request.maxAgeSeconds = caching.maxAgeSeconds;
 						request.staleWhileRevalidateSeconds = caching.staleWhileRevalidateSeconds;
+						if (caching.maxAgeSeconds) cacheControlDirectives.push(`s-maxage=${caching.maxAgeSeconds}`);
 						request.cacheKey = keyParts.join('&');
 						// let the caching layer handle the headers
 					}
-					if (caching.clientMaxAgeSeconds) {
-						responseHeaders['Cache-Control'] = `max-age=${caching.clientMaxAgeSeconds}`;
+					if (caching.forcePrivateCaching) cacheControlDirectives.push('private');
+					if (caching.clientMaxAgeSeconds !== undefined) {
+						if (!caching.clientMaxAgeSeconds && !caching.maxAgeSeconds)
+							cacheControlDirectives.push('no-store', 'no-cache', 'must-revalidate');
+						else cacheControlDirectives.push(`max-age=${caching.clientMaxAgeSeconds}`);
 					}
+					responseHeaders['Cache-Control'] = cacheControlDirectives.join(', ');
 				} else if (actions.caching === false) {
 					request.cacheKey = undefined;
 				}
@@ -434,18 +440,18 @@ class RequestActions {
 	get cache() {
 		let actions = this;
 		return (options) => {
+			let caching = actions.caching ?? (actions.caching = {});
 			if (options.edge) {
-				actions.caching = {
-					maxAgeSeconds: options.edge.maxAgeSeconds,
-					staleWhileRevalidateSeconds: options.edge.staleWhileRevalidateSeconds,
-				};
+				caching.maxAgeSeconds = options.edge.maxAgeSeconds;
+				caching.staleWhileRevalidateSeconds = options.edge.staleWhileRevalidateSeconds;
+				caching.forcePrivateCaching = options.edge.forcePrivateCaching;
 			} else if (options.edge === false) actions.caching = false;
 			if (options.browser) {
 				if (options.browser.maxAgeSeconds != null) {
-					actions.setResponseHeader('Cache-Control', `max-age=${options.browser.maxAgeSeconds}`);
+					caching.clientMaxAgeSeconds = options.browser.maxAgeSeconds;
 				}
 			} else if (options.browser === false) {
-				actions.setResponseHeader('Cache-Control', `no-store, no-cache`);
+				caching.clientMaxAgeSeconds = 0;
 			}
 			if (options.key) {
 				if (!actions.caching) actions.caching = {};

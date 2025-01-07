@@ -205,7 +205,8 @@ class Router {
 							}
 						}
 						request.maxAgeSeconds = caching.maxAgeSeconds;
-						request.staleWhileRevalidateSeconds = caching.staleWhileRevalidateSeconds;
+						// disable SWR for now
+						// request.staleWhileRevalidateSeconds = caching.staleWhileRevalidateSeconds;
 						if (caching.maxAgeSeconds) cacheControlDirectives.push(`s-maxage=${caching.maxAgeSeconds}`);
 						request.cacheKey = keyParts.join('&');
 						// let the caching layer handle the headers

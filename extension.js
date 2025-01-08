@@ -41,7 +41,7 @@ exports.start = function (options = {}) {
 					// get the handler for the request, that has/will
 					// process the request
 					// if we have a cache key, we can attempt to resolve the request from the cache
-					if (request.cacheKey) {
+					if (request.cacheKey || request.pathname === '/invalidate') {
 						// let the cache attempt to resolve
 						return cacheHandler(request, handler);
 					} else {

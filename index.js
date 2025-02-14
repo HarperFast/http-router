@@ -314,14 +314,13 @@ class Router {
 					return () =>
 						new Promise((resolve, reject) => {
 							const param = rule.condition.path.exec(request.pathname)[1];
-							let path = decodeURIComponent(
-								actions.servingStaticPath.replace(/:[\w\*\+]+/, param).replace(/\.\.\//, '')
-							);
+							let path = decodeURIComponent(actions.servingStaticPath.replace(/:[\w\*\+]+/, param));
 							for (let key in responseHeaders) {
 								nodeResponse.setHeader(key, responseHeaders[key]);
 							}
-							send(request, join(entryModule.baseDir, path), {
+							send(request, path, {
 								dotfiles: 'allow',
+								root: entryModule.baseDir,
 							})
 								.pipe(nodeResponse)
 								.on('finish', () => resolve())

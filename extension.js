@@ -2,7 +2,7 @@ const { getCacheHandler } = require('@harperdb/http-cache/extension');
 const { dirname } = require('path');
 const { pathToFileURL } = require('url'); 
 exports.origins = new Map();
-exports.baseDir == __dirname;
+exports.baseDir = __dirname;
 exports.start = function (options = {}) {
 	let cacheHandler = getCacheHandler(options);
 	return {

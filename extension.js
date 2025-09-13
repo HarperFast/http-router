@@ -1,14 +1,15 @@
 const { getCacheHandler } = require('@harperdb/http-cache/extension');
 const { dirname } = require('path');
+const { pathToFileURL } = require('url');
 exports.origins = new Map();
-exports.baseDir == __dirname;
+exports.baseDir = __dirname;
 exports.start = function (options = {}) {
 	let cacheHandler = getCacheHandler(options);
 	return {
 		async handleFile(js, url_path, file_path) {
 			if (file_path.includes('edgio.config.')) {
 				exports.baseDir = dirname(file_path);
-				const moduleExports = (await import(file_path)).default;
+				const moduleExports = (await import(pathToFileURL(file_path))).default;
 				for (let origin of moduleExports.origins || []) {
 					exports.origins.set(origin.name, {
 						hostname: origin.hosts?.[0]?.location?.[0]?.hostname ?? origin.hosts?.[0]?.location,
@@ -21,7 +22,7 @@ exports.start = function (options = {}) {
 			}
 			if (file_path.includes('layer0.config.')) {
 				exports.baseDir = dirname(file_path);
-				const moduleExports = (await import(file_path)).default;
+				const moduleExports = (await import(pathToFileURL(file_path))).default;
 				for (let originName in moduleExports.backends) {
 					const origin = moduleExports.backends[originName];
 					exports.origins.set(originName, {
@@ -34,7 +35,7 @@ exports.start = function (options = {}) {
 			}
 			if (file_path.includes('routes.')) {
 				exports.baseDir = dirname(file_path);
-				let routes = (await import(file_path)).default;
+				let routes = (await import(pathToFileURL(file_path))).default;
 				if (typeof routes === 'function') routes = routes();
 				const servers = options.server.http(async (request, nextHandler) => {
 					const handler = await routes.onRequest(request, nextHandler);

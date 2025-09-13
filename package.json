@@ -1,0 +1,37 @@
+{
+	"name": "@harperdb/http-router",
+	"version": "0.2.11",
+	"type": "commonjs",
+	"main": "index.js",
+	"description": "A HarperDB Component for routing requests using the Edgio/Layer0 router API",
+	"keywords": [
+		"harperdb",
+		"caching"
+	],
+	"homepage": "https://github.com/HarperDB/http-router",
+	"bugs": {
+		"url": "https://github.com/HarperDB/http-router/issues",
+		"email": "support@harperdb.io"
+	},
+	"author": {
+		"name": "HarperDB",
+		"email": "support@harperdb.io"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/HarperDB/http-router.git"
+	},
+	"license": "MIT",
+	"scripts": {
+		"format": "prettier --write ."
+	},
+	"dependencies": {
+		"@harperdb/http-cache": "1.0.8",
+		"send": "^1.1.0"
+	},
+	"devDependencies": {
+		"@harperdb/code-guidelines": "^0.0.2",
+		"prettier": "^3.3.3"
+	},
+	"prettier": "@harperdb/code-guidelines/prettier"
+}

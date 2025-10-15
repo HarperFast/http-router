@@ -210,6 +210,8 @@ class Router {
 						if (caching.maxAgeSeconds) cacheControlDirectives.push(`s-maxage=${caching.maxAgeSeconds}`);
 						request.cacheKey = keyParts.join('&');
 						// let the caching layer handle the headers
+
+						request.cacheGroup = caching.cacheGroup;
 					}
 					if (caching.forcePrivateCaching) cacheControlDirectives.push('private');
 					if (caching.clientMaxAgeSeconds !== undefined) {

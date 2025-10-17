@@ -218,6 +218,8 @@ class Router {
 						else cacheControlDirectives.push(`max-age=${caching.clientMaxAgeSeconds}`);
 					}
 					responseHeaders['Cache-Control'] = cacheControlDirectives.join(', ');
+
+					request.cacheGroup = caching.cacheGroup;
 				} else if (actions.caching === false) {
 					request.cacheKey = undefined;
 				}
@@ -445,6 +447,7 @@ class RequestActions {
 				caching.maxAgeSeconds = options.edge.maxAgeSeconds;
 				caching.staleWhileRevalidateSeconds = options.edge.staleWhileRevalidateSeconds;
 				caching.forcePrivateCaching = options.edge.forcePrivateCaching;
+				caching.cacheGroup = options.edge.cacheGroup;
 			} else if (options.edge === false) actions.caching = false;
 			if (options.browser) {
 				if (options.browser.maxAgeSeconds != null) {

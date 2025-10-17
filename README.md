@@ -46,3 +46,55 @@ Specify a port for the caching server. Defaults to `9926`.
 ### `files: String`
 
 Used to load the necessary JS files.
+
+
+## config.yaml extension options
+
+- clearRestIntervalCount - Number of records to invalidate prior to pausing when /invalidate endpoint is called
+- clearRestIntervalMs - Duration of pause in milliseconds when /invalidate endpoint is called
+- scheduledFullCacheClearTime - Time of day to perform a full cache clear (Expressed as hours in 24-hour format UTC time, i.e. 10.33 = 10:20 AM UTC)
+- additionalCacheDatabaseGroups - Array of additional database groups to use for caching. Each group will create a new database to store cached records.
+
+Example usage:
+
+
+```yaml
+'@harperdb/http-router':
+  package: '@harperdb/http-router'
+  files: '*.*js'
+  clearRestIntervalCount: 1000
+  clearRestIntervalMs: 10
+  scheduledFullCacheClearTime: 10.33
+  additionalCacheDatabaseGroups:
+    - 'api'
+```
+
+## Multi DB Caching
+
+By default, the cache will use a database named `cache` to store cached records. You can specify additional database groups to use for caching via the `additionalCacheDatabaseGroups` configuration option in the `config.yaml` file.
+Each additional database group will create a new database to store cached records. The database group name can optionally be passed as the `cacheGroup` paramater as part of the `edge` caching configuration within the request actions.
+
+i.e.
+
+```js
+cache({
+    edge: {
+      maxAgeSeconds: 10000,
+      staleWhileRevalidateSeconds: 3600,
+      cacheGroup: 'api'
+    }
+})
+```
+
+## Invalidation
+
+Cache can be invalidated via a POST request to /invalidate
+
+This will invalidate records from the default `cache` database. To invalidate records from an additional cache database, use the `x-cache-group` request header to specify the database group name.
+
+i.e.
+
+```
+POST /invalidate
+HEADER: 'x-cache-group: api'
+```

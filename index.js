@@ -244,6 +244,11 @@ class Router {
 					const headers = request.headers.asObject;
 					delete headers.host;
 					delete headers.Host;
+
+					if (actions.request_headers) {
+						Object.assign(headers, actions.request_headers)
+					}
+
 					if (originConfig.hostHeader) headers.Host = originConfig.hostHeader;
 					const requestOptions = {
 						timeout: 60000,

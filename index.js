@@ -423,7 +423,7 @@ class Rule {
 
 class RequestActions {
 	constructor(request) {
-		this.request = request;
+		this._request = request;
 	}
 	// we do theses as a getters, because the function is accessed through destructuring and called without its
 	// context/this

@@ -447,9 +447,9 @@ class RequestActions {
 	get setRequestHeader() {
     let actions = this;
     return (name, value) => {
-        // Store request header modifications
-        if (!actions.request_headers) actions.request_headers = {};
-        actions.request_headers[name.toLowerCase()] = value;
+			// Store request header modifications
+			if (!actions.request_headers) actions.request_headers = {};
+			actions.request_headers[name.toLowerCase()] = value;
     };
 	}
 	get request() {

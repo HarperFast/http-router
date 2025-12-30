@@ -7,6 +7,7 @@ const { CustomCacheKey } = require('./CustomCacheKey'); // to re-export
 const send = require('send');
 const { readFileSync, existsSync } = require('node:fs');
 const { Readable } = require('stream');
+const { parseCookies } = require('./utils/parseCookies.js');
 
 const manifest = new Map();
 
@@ -170,45 +171,154 @@ class Router {
 					const caching = actions.caching;
 					let cacheControlDirectives = [];
 					if (caching.maxAgeSeconds || caching.staleWhileRevalidateSeconds) {
-						// enable caching, set a cache key
-						let keyParts = [request.pathname];
-						if (caching.cache_key?.include_query_params) {
-							const queryStart = request.url.indexOf('?');
-							if (queryStart !== -1) {
-								const query = request.url.slice(queryStart + 1);
-								new URLSearchParams(query).forEach((value, key) => {
-									if (caching.cache_key.include_query_params.includes(key)) {
-										keyParts.push(`${key}=${value}`);
-									}
-								});
+						// Build cache key components in a deterministic way (sorted)
+						// Ensure pathname is always present and valid - this is critical for cache key uniqueness
+						const pathname = request.pathname || new URL(request.url, `http://${request.headers.get('host') || 'localhost'}`).pathname;
+						if (!pathname || pathname === '') {
+							// Fallback: use full URL path as last resort
+							const urlPath = new URL(request.url, `http://${request.headers.get('host') || 'localhost'}`).pathname;
+							console.warn('[CACHE KEY WARNING] Empty pathname, using URL path:', urlPath);
+						}
+
+						const cacheKeyData = {
+							pathname: pathname || request.url.split('?')[0] || '/',
+							query: {},
+							headers: {},
+							cookies: {},
+						};
+
+						// Process query parameters - match @layer0/core approach exactly:
+						// 1. Start with ALL query params then DELETE the ones not in whitelist (not just add whitelisted ones)
+						let requestQuery = {};
+
+						// Try to use request.query first (if available from Next.js/Express)
+						if (request.query && typeof request.query === 'object') {
+							for (const key in request.query) {
+								requestQuery[key] = request.query[key];
 							}
 						} else {
-							// this is a bit of a mystery to me, do we include the query params in the cache key or not if
-							// they're not specified? (using request.url instead of request.pathname will include the query params)
-							keyParts = [request.url];
-						}
-						if (caching.cache_key?.include_headers) {
-							keyParts = keyParts ?? [];
-							for (let header of caching.cache_key?.include_headers) {
-								keyParts.push(`${header}=${request.headers.get(header)}`);
-							}
-						}
-						if (caching.cache_key?.include_cookies) {
-							keyParts = keyParts ?? [];
-							const cookie = request.headers.get('cookie');
-							const cookies = cookie?.split(/;\s+/) || [];
-							for (const cookie of cookies || []) {
-								const [name, value] = cookie.split('=');
-								if (caching.cache_key.include_cookies.includes(name)) {
-									keyParts.push(`${name}=${value}`);
+							// Fallback: parse from URL manually
+							const queryStart = request.url.indexOf('?');
+							if (queryStart !== -1) {
+								const queryString = request.url.slice(queryStart + 1);
+								const params = new URLSearchParams(queryString);
+								for (const key of params.keys()) {
+									const values = params.getAll(key);
+									requestQuery[key] = values.length === 1 ? values[0] : values;
 								}
 							}
 						}
+
+						cacheKeyData.query = { ...requestQuery };
+
+						if (caching.cache_key?.include_query_params) {
+							const toKeep = new Set(caching.cache_key.include_query_params);
+							for (const key in cacheKeyData.query) {
+								if (!toKeep.has(key)) {
+									delete cacheKeyData.query[key];
+								}
+							}
+						}
+
+						// Process headers - sort them for consistency
+						if (caching.cache_key?.include_headers) {
+							const sortedHeaders = [...caching.cache_key.include_headers].sort();
+							for (let header of sortedHeaders) {
+								const value = request.headers.get(header);
+								if (value !== null && value !== undefined) {
+									cacheKeyData.headers[header] = value;
+								}
+							}
+						}
+
+						// Always include default headers in cache key
+						// These are critical for cache key uniqueness
+						const host = request.headers.get('host');
+						if (host) {
+							cacheKeyData.headers['host'] = host;
+						}
+						const acceptEncoding = request.headers.get('accept-encoding');
+						if (acceptEncoding) {
+							cacheKeyData.headers['accept-encoding'] = acceptEncoding;
+						}
+
+						// Process cookies with proper parsing - sort them for consistency
+						if (caching.cache_key?.include_cookies) {
+							const cookieHeader = request.headers.get('cookie');
+							if (cookieHeader) {
+								const cookies = parseCookies(cookieHeader);
+								const sortedCookieNames = [...caching.cache_key.include_cookies].sort();
+								for (const cookieName of sortedCookieNames) {
+									if (cookies[cookieName] !== undefined) {
+										cacheKeyData.cookies[cookieName] = cookies[cookieName];
+									}
+								}
+							}
+						}
+
+						// Create deterministic cache key
+						// Convert objects to sorted arrays of [key, value] pairs for consistent JSON.stringify
+						const toSortedArray = (obj) => {
+							if (!obj || typeof obj !== 'object') return [];
+							return Object.keys(obj)
+								.sort()
+								.map(key => {
+									const value = obj[key];
+									// Handle arrays and ensure consistent representation
+									if (Array.isArray(value)) {
+										return [key, value.sort()];
+									}
+									return [key, value];
+								})
+								.filter(([key, value]) => value !== null && value !== undefined && value !== '');
+						};
+
+						// Build cache key structure
+						const cacheKeyStructure = {
+							// CRITICAL: pathname must always be unique and present
+							pathname: cacheKeyData.pathname || request.url.split('?')[0] || '/',
+							method: (request.method || 'GET').toLowerCase(),
+							query: toSortedArray(cacheKeyData.query),
+							headers: toSortedArray(cacheKeyData.headers),
+							cookies: toSortedArray(cacheKeyData.cookies),
+						};
+
 						request.maxAgeSeconds = caching.maxAgeSeconds;
 						// disable SWR for now
 						// request.staleWhileRevalidateSeconds = caching.staleWhileRevalidateSeconds;
 						if (caching.maxAgeSeconds) cacheControlDirectives.push(`s-maxage=${caching.maxAgeSeconds}`);
-						request.cacheKey = keyParts.join('&');
+
+						// Use JSON.stringify - this ensures deterministic ordering
+						// and handles all edge cases (special chars, arrays, etc.)
+						const cacheKeyString = JSON.stringify(cacheKeyStructure);
+
+						// Validate cache key is not empty - critical safety check
+						if (!cacheKeyString || cacheKeyString === '{}' || cacheKeyString === 'null') {
+							console.error('[CACHE KEY ERROR] Invalid cache key generated:', {
+								url: request.url,
+								pathname: cacheKeyData.pathname,
+								structure: cacheKeyStructure
+							});
+							// Fallback to URL-based key if custom key generation fails
+							request.cacheKey = request.url.split('?')[0] || request.url;
+						} else {
+							request.cacheKey = cacheKeyString;
+						}
+
+						// Debug logging
+						if (process.env.DEBUG_CACHE_KEYS === 'true') {
+							console.log('[CACHE KEY]', {
+								url: request.url,
+								pathname: cacheKeyData.pathname,
+								query: cacheKeyData.query,
+								headers: cacheKeyData.headers,
+								cookies: cacheKeyData.cookies,
+								cacheKey: request.cacheKey,
+								cacheKeyLength: request.cacheKey?.length
+							});
+
+							responseHeaders['X-Debug-Cache-Key'] = request.cacheKey;
+						}
 						// let the caching layer handle the headers
 					}
 					if (caching.forcePrivateCaching) cacheControlDirectives.push('private');

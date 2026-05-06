@@ -294,7 +294,7 @@ class Router {
 
 						// Validate cache key is not empty - critical safety check
 						if (!cacheKeyString || cacheKeyString === '{}' || cacheKeyString === 'null') {
-							console.error('[CACHE KEY ERROR] Invalid cache key generated:', {
+							logger.error('[CACHE KEY ERROR] Invalid cache key generated:', {
 								url: request.url,
 								pathname: cacheKeyData.pathname,
 								structure: cacheKeyStructure

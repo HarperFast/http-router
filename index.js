@@ -177,7 +177,7 @@ class Router {
 						if (!pathname || pathname === '') {
 							// Fallback: use full URL path as last resort
 							const urlPath = new URL(request.url, `http://${request.headers.get('host') || 'localhost'}`).pathname;
-							console.warn('[CACHE KEY WARNING] Empty pathname, using URL path:', urlPath);
+							logger.warn('[CACHE KEY WARNING] Empty pathname, using URL path:', urlPath);
 						}
 
 						const cacheKeyData = {

@@ -307,7 +307,7 @@ class Router {
 
 						// Debug logging
 						if (process.env.DEBUG_CACHE_KEYS === 'true') {
-							console.log('[CACHE KEY]', {
+							logger.info('[CACHE KEY]', {
 								url: request.url,
 								pathname: cacheKeyData.pathname,
 								query: cacheKeyData.query,

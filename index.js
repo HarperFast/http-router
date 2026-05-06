@@ -244,6 +244,11 @@ class Router {
 					const headers = request.headers.asObject;
 					delete headers.host;
 					delete headers.Host;
+
+					if (actions.request_headers) {
+						Object.assign(headers, actions.request_headers)
+					}
+
 					if (originConfig.hostHeader) headers.Host = originConfig.hostHeader;
 					const requestOptions = {
 						timeout: 60000,
@@ -423,7 +428,7 @@ class Rule {
 
 class RequestActions {
 	constructor(request) {
-		this.request = request;
+		this._request = request;
 	}
 	// we do theses as a getters, because the function is accessed through destructuring and called without its
 	// context/this
@@ -438,6 +443,17 @@ class RequestActions {
 				headers.set_response_headers[key] = value;
 			}
 		};
+	}
+	get setRequestHeader() {
+    let actions = this;
+    return (name, value) => {
+			// Store request header modifications
+			if (!actions.request_headers) actions.request_headers = {};
+			actions.request_headers[name.toLowerCase()] = value;
+    };
+	}
+	get request() {
+		return this._request;
 	}
 	get cache() {
 		let actions = this;

@@ -3,7 +3,7 @@
 	"version": "0.4.2",
 	"type": "commonjs",
 	"main": "index.js",
-	"description": "A HarperDB Component for routing requests using the Edgio/Layer0 router API",
+	"description": "A Harper Component for routing requests using the Edgio/Layer0 router API",
 	"keywords": [
 		"harperdb",
 		"caching"
@@ -23,7 +23,8 @@
 	},
 	"license": "Apache-2.0",
 	"scripts": {
-		"format": "prettier --write ."
+		"format": "prettier --write .",
+		"test:integration": "harper-integration-test-run integrationTests/**/*.test.ts"
 	},
 	"dependencies": {
 		"@harperdb/http-cache": "^1.2.1",
@@ -31,7 +32,10 @@
 	},
 	"devDependencies": {
 		"@harperdb/code-guidelines": "^0.0.2",
-		"prettier": "^3.3.3"
+		"@harperfast/integration-testing": "^0.4.0",
+		"harper": "^5.0.28",
+		"prettier": "^3.3.3",
+		"typescript": "^6.0.3"
 	},
 	"prettier": "@harperdb/code-guidelines/prettier"
 }

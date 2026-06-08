@@ -1,0 +1,9 @@
+{
+	"name": "http-router-test-fixture",
+	"version": "1.0.0",
+	"private": true,
+	"description": "Integration test fixture app for @harperdb/http-router",
+	"dependencies": {
+		"@harperdb/http-router": "^0.4.2"
+	}
+}

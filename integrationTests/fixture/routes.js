@@ -1,9 +1,8 @@
 /**
- * Test routes configuration for integration testing.
- * Exercises the core Router API features: redirects, caching config,
- * header manipulation, and fallback handling.
+ * Integration test routes for @harperdb/http-router.
+ * Tests: redirects, caching headers, custom response headers, and fallback.
  */
-const { Router } = require('./index.js');
+const { Router } = require('@harperdb/http-router');
 
 module.exports = new Router()
 	// Permanent redirect
@@ -14,11 +13,11 @@ module.exports = new Router()
 	.get('/temp-redirect', ({ redirect }) => {
 		redirect('/destination', 302);
 	})
-	// Route with edge caching configured (sets cache headers on response)
+	// Route with edge caching configured
 	.get('/cached-resource', ({ cache }) => {
 		cache({ edge: { maxAgeSeconds: 60 } });
 	})
-	// Route with response header set
+	// Route with custom response header
 	.get('/with-header', ({ setResponseHeader }) => {
 		setResponseHeader('X-Custom-Header', 'test-value');
 	})

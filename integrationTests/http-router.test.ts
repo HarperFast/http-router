@@ -28,8 +28,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // it explicitly as harperBinPath — the documented harness escape hatch.
 const harperBinPath = resolve(dirname(require.resolve('harper')), 'bin/harper.js');
 
-// Fixture is the repo root: has config.yaml (extensionModule: ./extension.js) and routes.js.
-const FIXTURE_PATH = resolve(__dirname, '..');
+// Fixture is a self-contained Harper app in integrationTests/fixture/.
+// It has config.yaml listing @harperdb/http-router as a component (with files: '*.js'),
+// a routes.js that exercises the Router API, and pre-installed node_modules
+// (committed so CI can use npm ci without a separate install step).
+const FIXTURE_PATH = resolve(__dirname, 'fixture');
 
 suite('http-router: startup', (ctx: ContextWithHarper) => {
 	before(async () => {

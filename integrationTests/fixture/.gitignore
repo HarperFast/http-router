@@ -1,0 +1,3 @@
+# Un-ignore node_modules for this fixture — CI (npm ci at repo root) does not
+# install fixture deps, so the fixture's node_modules must be committed.
+!node_modules/

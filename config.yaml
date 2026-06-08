@@ -1,3 +1,4 @@
 extensionModule: ./extension.js
+files: '*.js'
 graphqlSchema:
   files: '*.graphql'

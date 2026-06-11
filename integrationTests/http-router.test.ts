@@ -54,7 +54,7 @@ suite('http-router: startup', (ctx: ContextWithHarper) => {
 		const { httpURL } = ctx.harper;
 		const res = await fetch(`${httpURL}/`);
 		await res.arrayBuffer();
-		ok(res.status < 600, `Harper should serve requests, got status ${res.status}`);
+		ok(res.status < 500, `Harper should serve requests, got status ${res.status}`);
 	});
 });
 

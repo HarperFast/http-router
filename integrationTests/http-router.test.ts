@@ -20,15 +20,18 @@
  * Note on local runs: macOS loopback aliases 127.0.0.2+ are not configured, so
  * local runs will fail with EADDRNOTAVAIL. CI on ubuntu-latest is the gate.
  */
-import { suite, test, before, after } from 'node:test';
+import { suite, test, before, after, type SuiteContext } from 'node:test';
 import { strictEqual, ok } from 'node:assert/strict';
 import { setupHarperWithFixture, teardownHarper, type ContextWithHarper } from '@harperfast/integration-testing';
 import { createRequire } from 'node:module';
-import { dirname, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { cp, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = resolve(__dirname, '..');
 
 // harper's `exports` map only exposes "."; 'harper/dist/bin/harper.js' is not resolvable
 // (ERR_PACKAGE_PATH_NOT_EXPORTED). Resolve the CLI from the exported main entry and pass
@@ -41,13 +44,46 @@ const harperBinPath = resolve(dirname(require.resolve('harper')), 'bin/harper.js
 // (committed so CI can use npm ci without a separate install step).
 const FIXTURE_PATH = resolve(__dirname, 'fixture');
 
-suite('http-router: startup', (ctx: ContextWithHarper) => {
+// The component files the fixture's config.yaml loads (`files: '*.js'`), plus the
+// manifest that declares `main`/`type`/deps.
+const COMPONENT_FILES = ['package.json', 'config.yaml', 'index.js', 'extension.js', 'CustomCacheKey.js'];
+
+/**
+ * Copy the fixture to a scratch dir and overlay the working tree onto its vendored
+ * copy of @harperdb/http-router.
+ *
+ * The fixture's committed node_modules holds the *published* 0.4.2 tarball, so running
+ * the fixture as-is exercises the last release rather than this branch — a regression
+ * introduced in this PR would pass CI unnoticed. Overlaying the repo's own component
+ * files makes the suite test the code under review. Staging into a temp dir keeps the
+ * tracked fixture untouched.
+ */
+async function stageFixture(): Promise<{ fixturePath: string; cleanup: () => Promise<void> }> {
+	const staging = await mkdtemp(join(tmpdir(), 'http-router-fixture-'));
+	const fixturePath = join(staging, 'fixture');
+	await cp(FIXTURE_PATH, fixturePath, { recursive: true });
+	const vendored = join(fixturePath, 'node_modules', '@harperdb', 'http-router');
+	await Promise.all(COMPONENT_FILES.map((file) => cp(join(REPO_ROOT, file), join(vendored, file))));
+	return { fixturePath, cleanup: () => rm(staging, { recursive: true, force: true }) };
+}
+
+// One Harper instance for the whole file. Previously each of the three suites ran its
+// own setup/teardown, so CI paid for three sequential cold starts and three loopback
+// allocations against an identical fixture.
+const ctx = { name: 'http-router' } as ContextWithHarper;
+
+suite('http-router', (_suiteCtx: SuiteContext) => {
+	let cleanupFixture: () => Promise<void>;
+
 	before(async () => {
-		await setupHarperWithFixture(ctx, FIXTURE_PATH, { harperBinPath });
+		const staged = await stageFixture();
+		cleanupFixture = staged.cleanup;
+		await setupHarperWithFixture(ctx, staged.fixturePath, { harperBinPath });
 	});
 
 	after(async () => {
 		await teardownHarper(ctx);
+		await cleanupFixture?.();
 	});
 
 	test('Harper starts and the router component loads', async () => {
@@ -55,16 +91,6 @@ suite('http-router: startup', (ctx: ContextWithHarper) => {
 		const res = await fetch(`${httpURL}/`);
 		await res.arrayBuffer();
 		ok(res.status < 500, `Harper should serve requests, got status ${res.status}`);
-	});
-});
-
-suite('http-router: redirect rules', (ctx: ContextWithHarper) => {
-	before(async () => {
-		await setupHarperWithFixture(ctx, FIXTURE_PATH, { harperBinPath });
-	});
-
-	after(async () => {
-		await teardownHarper(ctx);
 	});
 
 	test('GET /old-path returns 301 with Location: /new-path', async () => {
@@ -103,16 +129,6 @@ suite('http-router: redirect rules', (ctx: ContextWithHarper) => {
 			customHeader === 'test-value',
 			`expected X-Custom-Header: test-value on redirect response, got ${customHeader ?? '(absent)'}`
 		);
-	});
-});
-
-suite('http-router: fallback pass-through', (ctx: ContextWithHarper) => {
-	before(async () => {
-		await setupHarperWithFixture(ctx, FIXTURE_PATH, { harperBinPath });
-	});
-
-	after(async () => {
-		await teardownHarper(ctx);
 	});
 
 	test('GET /unmatched-route falls through without a server error', async () => {

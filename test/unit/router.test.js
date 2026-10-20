@@ -91,20 +91,19 @@ describe('Router methods', () => {
 		assert.equal(await matchedMarker(new Router().always(marker('always')), { url: '/y' }), 'always');
 	});
 
-	it(
-		'fallback does not apply once an earlier rule matched',
-		{ todo: 'fallback() never sets rule.isFallback (index.js:82-84)' },
-		async () => {
-			const router = new Router().get('/page', marker('page')).fallback(marker('fallback'));
-			assert.equal(await matchedMarker(router, { url: '/page' }), 'page');
-		}
-	);
-
-	it('skips a rule flagged isFallback once an earlier rule matched', async () => {
+	it('fallback applies only when no earlier rule matched', async () => {
 		const router = new Router().get('/page', marker('page')).fallback(marker('fallback'));
-		router.rules[1].isFallback = true;
+		assert.equal(router.rules[1].isFallback, true);
 		assert.equal(await matchedMarker(router, { url: '/page' }), 'page');
 		assert.equal(await matchedMarker(router, { url: '/other' }), 'fallback');
+	});
+
+	it('fallback inside if() is flagged on the nested router', async () => {
+		const router = new Router().if('/section/:rest*').match('/section/known', marker('known'));
+		router.fallback(marker('section fallback'));
+		assert.equal(router.currentRouter.rules[1].isFallback, true);
+		assert.equal(await matchedMarker(router, { url: '/section/known' }), 'known');
+		assert.equal(await matchedMarker(router, { url: '/section/other' }), 'section fallback');
 	});
 
 	it('destination routes by the origin hostname as the Host header', async () => {

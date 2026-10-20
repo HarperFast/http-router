@@ -80,7 +80,10 @@ class Router {
 		return this;
 	}
 	fallback(options) {
-		return this.match(null, options);
+		this.match(null, options);
+		const router = this.currentRouter || this;
+		router.rules[router.rules.length - 1].isFallback = true;
+		return this;
 	}
 	always(options) {
 		return this.match(null, options);

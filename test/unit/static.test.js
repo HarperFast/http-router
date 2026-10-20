@@ -35,6 +35,31 @@ describe('serveStatic', () => {
 		assert.equal(sendStub.calls[0].filePath, 'public/index.html');
 	});
 
+	it('serves a fixed path on a rule without a path condition', async () => {
+		const router = new Router().always(({ serveStatic }) => serveStatic('public/index.html'));
+		const handler = await router.onRequest(createRequest({ url: '/anything' }), nextHandler);
+		await handler();
+		assert.equal(sendStub.calls[0].filePath, 'public/index.html');
+	});
+
+	it('rejects a parameterized static path when the route has no path parameter to substitute', async () => {
+		const expectedError = {
+			message: 'Static path "public/:file*" needs a path parameter from the route to substitute',
+		};
+		const serveFile = ({ serveStatic }) => serveStatic('public/:file*');
+		const routers = [
+			new Router().always(serveFile),
+			new Router().match({ not: '/admin' }, serveFile),
+			new Router().match({ headers: { 'x-a': '1' } }, serveFile),
+			new Router().match(/^\/no-group$/, serveFile),
+		];
+		const requestOptions = [{ url: '/a' }, { url: '/a' }, { url: '/a', headers: { 'x-a': '1' } }, { url: '/no-group' }];
+		for (const [index, router] of routers.entries()) {
+			await assert.rejects(router.onRequest(createRequest(requestOptions[index]), nextHandler), expectedError);
+		}
+		assert.equal(sendStub.calls.length, 0);
+	});
+
 	it('rejects when sending the file fails', async () => {
 		const sendError = new Error('ENOENT');
 		const request = createRequest({ url: '/assets/missing.css' });

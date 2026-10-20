@@ -443,10 +443,17 @@ class Router {
 				}
 
 				if (actions.servingStaticPath) {
+					let staticPath = actions.servingStaticPath;
+					if (/:[\w\*\+]+/.test(staticPath)) {
+						const param = rule.condition?.path?.exec?.(request.pathname)?.[1];
+						if (param === undefined) {
+							throw new Error(`Static path "${staticPath}" needs a path parameter from the route to substitute`);
+						}
+						staticPath = staticPath.replace(/:[\w\*\+]+/, param);
+					}
+					const path = decodeURIComponent(staticPath);
 					return () =>
 						new Promise((resolve, reject) => {
-							const param = rule.condition.path.exec(request.pathname)[1];
-							let path = decodeURIComponent(actions.servingStaticPath.replace(/:[\w\*\+]+/, param));
 							for (let key in responseHeaders) {
 								nodeResponse.setHeader(key, responseHeaders[key]);
 							}

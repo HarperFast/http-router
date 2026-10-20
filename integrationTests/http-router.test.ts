@@ -103,6 +103,11 @@ function routingTests(ctx: ContextWithHarper) {
 		strictEqual(await response.text(), 'static file served by the router\n');
 	});
 
+	test('every routes file is active, tried in path order', async () => {
+		strictEqual(await getRedirectLocation(`${ctx.harper.httpURL}/extra-route`), '/extra-ok');
+		strictEqual(await getRedirectLocation(`${ctx.harper.httpURL}/shared-route`), '/shared-from-extra');
+	});
+
 	test('a cached route is a MISS and then a HIT', async () => {
 		const url = `${ctx.harper.httpURL}/content/${Date.now()}`;
 		const miss = await fetch(url);

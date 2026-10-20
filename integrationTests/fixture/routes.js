@@ -14,6 +14,9 @@ module.exports = new Router()
 	.get('/routes-version', ({ redirect }) => {
 		redirect('/routes-v1', 302);
 	})
+	.get('/shared-route', ({ redirect }) => {
+		redirect('/shared-from-routes', 302);
+	})
 	.get('/content/:id', ({ cache }) => {
 		cache({ edge: { maxAgeSeconds: 60 } });
 	})

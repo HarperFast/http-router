@@ -30,7 +30,7 @@ npm install @harperdb/http-router
   prebuilt: true
 ```
 
-The router loads the `routes.*`, `edgio.config.*` and `layer0.config.*` files that `files` matches. Origins from `edgio.config.*` or `layer0.config.*` are loaded before the routes, and a changed routes file replaces the active routes without a restart.
+The router loads the `routes.*`, `edgio.config.*` and `layer0.config.*` files that `files` matches; it never looks inside `node_modules`. Origins from `edgio.config.*` or `layer0.config.*` are loaded before the routes. When there are several routes files, each is tried in path order, and a request none of them handles goes on to the next component. A changed routes or origin file is picked up without a restart.
 
 And then you can build a `routes.js` file in the root of your application that looks like this:
 

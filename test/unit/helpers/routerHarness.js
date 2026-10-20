@@ -32,6 +32,9 @@ class FakeClientRequest extends EventEmitter {
 		this.body = body;
 		this.resolveEnded(body);
 	}
+	destroy(error) {
+		this.destroyedWith = error;
+	}
 	respond({ statusCode = 200, statusMessage = 'OK', headers = {}, body = '' } = {}) {
 		const response = new PassThrough();
 		response.statusCode = statusCode;

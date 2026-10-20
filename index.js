@@ -418,9 +418,14 @@ class Router {
 								});
 								logger.info(`Sending proxied request for ${request.url} to ${originHostname}`);
 								if (request.method !== 'GET' && request.method !== 'HEAD') {
-									streamToBuffer(request._nodeRequest).then((buffer) => {
-										proxiedRequest.end(buffer);
-									});
+									streamToBuffer(request._nodeRequest).then(
+										(buffer) => proxiedRequest.end(buffer),
+										(error) => {
+											logger.warn(`Error reading request body to proxy ${request.url}`, error);
+											proxiedRequest.destroy(error);
+											reject(error);
+										}
+									);
 								} else proxiedRequest.end();
 							} catch (error) {
 								logger.warn(`Error preparing proxying request ${request.url}`, error);

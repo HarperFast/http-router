@@ -209,27 +209,19 @@ describe('proxying', () => {
 		assert.ok(loggedMessages.warn.some(([message]) => message === 'Error preparing proxying request /'));
 	});
 
-	it(
-		'rejects when reading the request body fails',
-		{ todo: 'streamToBuffer rejection is unhandled, so the proxy promise never settles (index.js:418-420)' },
-		async () => {
-			const request = createRequest({ url: '/', method: 'POST' });
-			request._nodeRequest = new Readable({
-				read() {
-					this.destroy(new Error('client aborted'));
-				},
-			});
-			const handler = await new Router().always({ origin: 'plain' }).onRequest(request, nextHandler);
-			const outcome = await Promise.race([
-				handler().then(
-					() => 'resolved',
-					() => 'rejected'
-				),
-				new Promise((resolve) => setTimeout(() => resolve('pending'), 50)),
-			]);
-			assert.equal(outcome, 'rejected');
-		}
-	);
+	it('rejects and aborts the proxied request when reading the request body fails', async () => {
+		const request = createRequest({ url: '/upload', method: 'POST' });
+		const bodyError = new Error('client aborted');
+		request._nodeRequest = new Readable({
+			read() {
+				this.destroy(bodyError);
+			},
+		});
+		const handler = await new Router().always({ origin: 'plain' }).onRequest(request, nextHandler);
+		await assert.rejects(handler(), bodyError);
+		assert.equal(proxyStub.requests[0].destroyedWith, bodyError);
+		assert.ok(loggedMessages.warn.some(([message]) => message === 'Error reading request body to proxy /upload'));
+	});
 
 	it('rejects an unknown origin', async () => {
 		const router = new Router().always({ origin: 'unknown' });

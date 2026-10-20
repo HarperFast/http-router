@@ -33,11 +33,13 @@
 	],
 	"scripts": {
 		"format": "prettier --write .",
+		"test:unit": "node --test 'test/unit/**/*.test.js'",
+		"test:unit:coverage": "node --test --experimental-test-coverage --test-coverage-include='*.js' --test-coverage-include='utils/*.js' --test-coverage-lines=100 --test-coverage-functions=100 'test/unit/**/*.test.js'",
 		"pretest:integration": "node integrationTests/installFixtures.ts",
 		"test:integration": "harper-integration-test-run integrationTests/**/*.test.ts"
 	},
 	"dependencies": {
-		"@harperdb/http-cache": "github:HarperFast/http-cache#v5-upgrade",
+		"@harperdb/http-cache": "github:HarperFast/http-cache#d48bafb",
 		"send": "^1.1.0"
 	},
 	"devDependencies": {

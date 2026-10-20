@@ -705,7 +705,7 @@ function stringToRegex(str) {
 		const regex = stringToRegex(str.not);
 		return {
 			test(value) {
-				return !stringToRegex(regex).test(value);
+				return !regex.test(value);
 			},
 		};
 	} else throw new TypeError('Unknown type of matching requests ' + str);

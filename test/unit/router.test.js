@@ -211,15 +211,11 @@ describe('Rule matching', () => {
 		assert.equal(await matchedMarker(router, { url: '/private/x' }), undefined);
 	});
 
-	it(
-		'matches a nested { not } condition as the positive path',
-		{ todo: 'not-matcher re-runs stringToRegex on an already-built matcher (index.js:697)' },
-		async () => {
-			const router = new Router().match({ not: { not: '/kept' } }, marker('kept'));
-			assert.equal(await matchedMarker(router, { url: '/kept' }), 'kept');
-			assert.equal(await matchedMarker(router, { url: '/dropped' }), undefined);
-		}
-	);
+	it('matches a nested { not } condition as the positive path', async () => {
+		const router = new Router().match({ not: { not: '/kept' } }, marker('kept'));
+		assert.equal(await matchedMarker(router, { url: '/kept' }), 'kept');
+		assert.equal(await matchedMarker(router, { url: '/dropped' }), undefined);
+	});
 
 	it('matches query conditions after the first query parameter', async () => {
 		const router = new Router().match({ path: '/page', query: { preview: 'true' } }, marker('preview'));

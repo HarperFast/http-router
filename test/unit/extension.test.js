@@ -65,7 +65,8 @@ function createScope(directory, config, { withImport = false } = {}) {
 	scope.httpHandlers = [];
 	scope.server = { http: (listener) => scope.httpHandlers.push(listener) };
 	scope.errors = [];
-	scope.logger = { error: (...args) => scope.errors.push(args) };
+	scope.warnings = [];
+	scope.logger = { error: (...args) => scope.errors.push(args), warn: (...args) => scope.warnings.push(args) };
 	scope.restarts = 0;
 	scope.requestRestart = () => scope.restarts++;
 	if (withImport) {
@@ -127,10 +128,10 @@ describe('extension module', () => {
 	});
 
 	it('passes the cache handler an empty options object when the plugin has no options', async () => {
-		const directory = createApplication({});
-		const scope = createScope(directory, undefined);
-		await assert.rejects(handleApplication(scope), /needs a `files` option/);
+		const scope = createScope(createApplication({}), undefined);
+		await handleApplication(scope);
 		assert.deepEqual(cacheHandlerOptions, [{}]);
+		assert.equal(scope.httpHandlers.length, 1);
 	});
 });
 
@@ -191,10 +192,19 @@ describe('entry discovery', () => {
 		assert.equal(await request({ pathname: '/a' }), 'a');
 	});
 
-	it('rejects a missing files option and patterns outside the application', async () => {
-		for (const config of [{}, { files: '../*.js' }, { files: '/*.js' }]) {
+	it('warns once and routes nothing when the files option is missing', async () => {
+		for (const config of [{}, { files: null }]) {
+			const { scope, request } = await start({ 'routes.js': routesSource({ '/a': 'a' }) }, config);
+			assert.equal(scope.warnings.length, 1);
+			assert.match(scope.warnings[0][0], /needs a `files` option in config\.yaml/);
+			assert.equal(await request({ pathname: '/a' }), 'next handler result');
+		}
+	});
+
+	it('rejects patterns outside the application', async () => {
+		for (const config of [{ files: '../*.js' }, { files: '/*.js' }]) {
 			const scope = createScope(createApplication({}), config);
-			await assert.rejects(handleApplication(scope), /files/);
+			await assert.rejects(handleApplication(scope), /must be relative to the application/);
 		}
 	});
 

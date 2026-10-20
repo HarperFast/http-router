@@ -127,7 +127,16 @@ exports.handleApplication = async function (scope) {
 	});
 	scope.options.on('change', () => scope.requestRestart());
 
-	for (const entry of await findEntries(scope.directory, scope.options.getAll()?.files)) {
+	const files = scope.options.getAll()?.files;
+	let entries = [];
+	if (files === undefined || files === null) {
+		scope.logger.warn(
+			'@harperdb/http-router needs a `files` option in config.yaml, for example `files: "*.js"`; no routes are loaded'
+		);
+	} else {
+		entries = await findEntries(scope.directory, files);
+	}
+	for (const entry of entries) {
 		(entry.isOriginConfig ? originConfigPaths : routesPaths).add(entry.path);
 		markChanged(entry.path);
 		watchEntry(entry.path);
@@ -153,9 +162,6 @@ function classifyEntry(name) {
 }
 
 function normalizeFilesOption(files) {
-	if (files === undefined || files === null) {
-		throw new Error('@harperdb/http-router needs a `files` option in config.yaml, for example `files: "*.js"`');
-	}
 	const isObject = typeof files === 'object' && !Array.isArray(files);
 	return {
 		source: [isObject ? files.source : files].flat().map((pattern) => {

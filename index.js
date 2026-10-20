@@ -640,10 +640,10 @@ class RequestActions {
 		};
 	}
 	async run(handler) {
-		if (this.redirect) {
+		if (this.redirecting) {
 			return {
-				status: this.redirect.status,
-				headers: { Location: this.redirect.location },
+				status: this.redirecting.status,
+				headers: { Location: this.redirecting.location },
 			};
 		}
 		let response = await handler(this.request);

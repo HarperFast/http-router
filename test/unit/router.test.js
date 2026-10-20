@@ -384,10 +384,9 @@ describe('RequestActions.run', () => {
 		return { headers: { set: (name, value) => headers.set(name, value), values: headers } };
 	}
 
-	it('decorates the handler response with response headers and max-age', async () => {
+	it('calls the handler when no redirect is pending and decorates its response', async () => {
 		const request = createRequest();
 		const actions = await captureActions(request);
-		Object.defineProperty(actions, 'redirect', { value: undefined });
 		actions.responseHeaders = new Map([['x-run', 'yes']]);
 		actions.maxAgeSeconds = 120;
 		const response = createResponse();
@@ -403,29 +402,20 @@ describe('RequestActions.run', () => {
 
 	it('returns an undecorated response and passes through an empty one', async () => {
 		const actions = await captureActions(createRequest());
-		Object.defineProperty(actions, 'redirect', { value: undefined });
 		const response = createResponse();
 		assert.equal(await actions.run(() => response), response);
 		assert.equal(response.headers.values.size, 0);
 		assert.equal(await actions.run(() => undefined), undefined);
 	});
 
-	it(
-		'calls the handler when no redirect is pending',
-		{ todo: 'run checks the always-truthy redirect getter instead of redirecting (index.js:633)' },
-		async () => {
-			const actions = await captureActions(createRequest());
-			const response = createResponse();
-			assert.equal(await actions.run(() => response), response);
-		}
-	);
-
-	it(
-		'returns the pending redirect',
-		{ todo: 'run reads status and location from the redirect getter instead of redirecting (index.js:633-636)' },
-		async () => {
-			const actions = await captureActions(createRequest(), ({ redirect }) => redirect('/moved', 308));
-			assert.deepEqual(await actions.run(() => createResponse()), { status: 308, headers: { Location: '/moved' } });
-		}
-	);
+	it('returns the pending redirect without calling the handler', async () => {
+		const actions = await captureActions(createRequest(), ({ redirect }) => redirect('/moved', 308));
+		let handlerCalled = false;
+		const result = await actions.run(() => {
+			handlerCalled = true;
+			return createResponse();
+		});
+		assert.deepEqual(result, { status: 308, headers: { Location: '/moved' } });
+		assert.equal(handlerCalled, false);
+	});
 });

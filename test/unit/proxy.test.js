@@ -120,6 +120,35 @@ describe('proxying', () => {
 		assert.equal(clientRequest.options.path, '/api/users/1?expand=true');
 	});
 
+	it('uses a proxy path without a parameter as-is on any rule', async () => {
+		const router = new Router().always(({ proxy }) => proxy('plain', { path: '/fixed' }));
+		const { clientRequest } = await proxyAndRespond(router, { url: '/anything?q=1' });
+		assert.equal(clientRequest.options.path, '/fixed?q=1');
+	});
+
+	it('rejects a parameterized proxy path when the route has no path parameter to substitute', async () => {
+		const expectedError = { message: 'Proxy path "/api/:path*" needs a path parameter from the route to substitute' };
+		const proxyOptions = { origin: { origin: 'plain', path: '/api/:path*' } };
+		const routers = [
+			new Router().always(proxyOptions),
+			new Router().match({ not: '/admin' }, proxyOptions),
+			new Router().match({ headers: { 'x-a': '1' } }, proxyOptions),
+			new Router().match(/^\/no-group$/, proxyOptions),
+			new Router().match(/^\/global\/(.*)$/g, proxyOptions),
+		];
+		const requestOptions = [
+			{ url: '/a' },
+			{ url: '/a' },
+			{ url: '/a', headers: { 'x-a': '1' } },
+			{ url: '/no-group' },
+			{ url: '/global/a' },
+		];
+		for (const [index, router] of routers.entries()) {
+			await assert.rejects(router.onRequest(createRequest(requestOptions[index]), nextHandler), expectedError);
+		}
+		assert.equal(proxyStub.requests.length, 0);
+	});
+
 	it('overrides request headers set by the handler', async () => {
 		const router = new Router().always(({ proxy, setRequestHeader }) => {
 			setRequestHeader('X-Forwarded-Proto', 'https');

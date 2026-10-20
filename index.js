@@ -351,8 +351,15 @@ class Router {
 							}
 						}
 					} else if (proxying.path) {
-						const param = rule.condition.path.exec(request.pathname)[1];
-						url = proxying.path.replace(/:[\w\*\+]+/, param) + request.url.slice(request.pathname.length);
+						let proxyPath = proxying.path;
+						if (/:[\w\*\+]+/.test(proxyPath)) {
+							const param = rule.condition?.path?.exec?.(request.pathname)?.[1];
+							if (param === undefined) {
+								throw new Error(`Proxy path "${proxyPath}" needs a path parameter from the route to substitute`);
+							}
+							proxyPath = proxyPath.replace(/:[\w\*\+]+/, param);
+						}
+						url = proxyPath + request.url.slice(request.pathname.length);
 					}
 					const headers = request.headers.asObject;
 					delete headers.host;

@@ -40,14 +40,17 @@ describe('Router methods', () => {
 		assert.equal(await matchedMarker(router, { url: '/object', method: 'POST' }), 'object');
 	});
 
-	it(
-		'get does not match a POST request',
-		{ todo: 'Rule drops the method condition (index.js:58, 470-485)' },
-		async () => {
-			const router = new Router().get('/only-get', marker('get'));
-			assert.equal(await matchedMarker(router, { url: '/only-get', method: 'POST' }), undefined);
-		}
-	);
+	it('get matches GET and HEAD but not POST', async () => {
+		const router = new Router().get('/only-get', marker('get'));
+		assert.equal(await matchedMarker(router, { url: '/only-get', method: 'HEAD' }), 'get');
+		assert.equal(await matchedMarker(router, { url: '/only-get', method: 'POST' }), undefined);
+	});
+
+	it('post matches only POST', async () => {
+		const router = new Router().post('/only-post', marker('post'));
+		assert.equal(await matchedMarker(router, { url: '/only-post', method: 'GET' }), undefined);
+		assert.equal(await matchedMarker(router, { url: '/only-post', method: 'HEAD' }), undefined);
+	});
 
 	it('returns the router from every builder method for chaining', () => {
 		const router = new Router();

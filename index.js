@@ -471,6 +471,7 @@ class Rule {
 			if (path) {
 				this.condition.path = stringToRegex(path);
 			}
+			if (condition.method) this.condition.method = condition.method;
 			if (condition.query) {
 				for (let name in condition.query) {
 					condition.query[name] = stringToRegex(condition.query[name]);
@@ -510,6 +511,9 @@ class Rule {
 	 */
 	match(request) {
 		if (this.condition == null) return true;
+		const method = this.condition.method;
+		// HEAD is a body-less GET, so GET routes also serve it
+		if (method && method !== request.method && !(method === 'GET' && request.method === 'HEAD')) return false;
 		if (this.condition.path) {
 			if (!this.condition.path.test(request.pathname)) {
 				return false;

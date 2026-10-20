@@ -4,6 +4,10 @@ A [Harper Component](https://docs.harperdb.io/docs/developers/components) for ro
 
 ![NPM Version](https://img.shields.io/npm/v/%40harperdb%2Fhttp-router)
 
+## Requirements
+
+Harper 4.6.1 or later, including Harper 5. The router is a Harper plugin (it uses the Plugin API's `pluginModule` and `handleApplication`), which earlier Harper versions cannot load.
+
 ## Installation
 Go into the Harper application you would building and install this package and add it to the `config.yaml` file:
 
@@ -26,7 +30,9 @@ npm install @harperdb/http-router
   prebuilt: true
 ```
 
-And then you can build a `router.js` file in the root of your application that looks like this:
+The router loads the `routes.*`, `edgio.config.*` and `layer0.config.*` files that `files` matches. Origins from `edgio.config.*` or `layer0.config.*` are loaded before the routes, and a changed routes file replaces the active routes without a restart.
+
+And then you can build a `routes.js` file in the root of your application that looks like this:
 
 ```js
 const { Router, or, nextRoutes } = require('@harperdb/http-router');

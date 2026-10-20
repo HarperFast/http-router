@@ -467,6 +467,7 @@ class Rule {
 	actions = new RequestActions();
 	constructor(condition, options) {
 		if (condition == null) this.condition = null;
+		else if (condition instanceof OrRule) this.condition.or = condition;
 		else if (typeof condition === 'string' || condition instanceof RegExp || condition?.not) {
 			this.condition.path = stringToRegex(condition);
 		} else {
@@ -517,6 +518,7 @@ class Rule {
 		const method = this.condition.method;
 		// HEAD is a body-less GET, so GET routes also serve it
 		if (method && method !== request.method && !(method === 'GET' && request.method === 'HEAD')) return false;
+		if (this.condition.or && !this.condition.or.match(request)) return false;
 		if (this.condition.path) {
 			if (!this.condition.path.test(request.pathname)) {
 				return false;
@@ -665,14 +667,10 @@ exports.or = function (...conditions) {
 exports.nextRoutes = {}; // I think this is for the next.js routes
 class OrRule {
 	constructor(conditions) {
-		this.conditions = conditions;
+		this.conditions = conditions.map((condition) => new Rule(condition, {}));
 	}
 	match(request) {
-		for (let condition of this.conditions) {
-			if (condition.match(request)) {
-				return true;
-			}
-		}
+		return this.conditions.some((rule) => rule.match(request));
 	}
 }
 

@@ -259,24 +259,18 @@ describe('Rule matching', () => {
 
 describe('or', () => {
 	it('matches when any condition matches', () => {
-		const firstCondition = { match: (request) => request.pathname === '/a' };
-		const secondCondition = { match: (request) => request.pathname === '/b' };
-		const orRule = or(firstCondition, secondCondition);
-		assert.deepEqual(orRule.conditions, [firstCondition, secondCondition]);
+		const orRule = or('/a', { headers: { 'x-b': '1' } });
 		assert.equal(orRule.match(createRequest({ url: '/a' })), true);
-		assert.equal(orRule.match(createRequest({ url: '/b' })), true);
-		assert.ok(!orRule.match(createRequest({ url: '/c' })));
+		assert.equal(orRule.match(createRequest({ url: '/c', headers: { 'x-b': '1' } })), true);
+		assert.equal(orRule.match(createRequest({ url: '/c' })), false);
 	});
 
-	it(
-		'limits a router rule to the or-ed paths',
-		{ todo: 'Rule treats an OrRule condition as an empty object condition that matches everything (index.js:467-486)' },
-		async () => {
-			const router = new Router().match(or('/a', '/b'), marker('or'));
-			assert.equal(await matchedMarker(router, { url: '/a' }), 'or');
-			assert.equal(await matchedMarker(router, { url: '/c' }), undefined);
-		}
-	);
+	it('limits a router rule to the or-ed paths', async () => {
+		const router = new Router().match(or('/a', /^\/b\//, { not: '/:any*' }), marker('or'));
+		assert.equal(await matchedMarker(router, { url: '/a' }), 'or');
+		assert.equal(await matchedMarker(router, { url: '/b/1' }), 'or');
+		assert.equal(await matchedMarker(router, { url: '/c' }), undefined);
+	});
 });
 
 describe('Header directives', () => {

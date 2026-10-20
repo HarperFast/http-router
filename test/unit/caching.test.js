@@ -313,18 +313,17 @@ describe('setCaching', () => {
 		return request.maxAgeSeconds;
 	}
 
-	it('scales each interval unit relative to a plain number', async () => {
-		const unit = await edgeLifetimeFor(1);
-		assert.ok(unit > 0);
-		assert.equal(await edgeLifetimeFor('2M'), 2 * 30 * 86400 * unit);
-		assert.equal(await edgeLifetimeFor('2D'), 2 * 86400 * unit);
-		assert.equal(await edgeLifetimeFor('2d'), 2 * 86400 * unit);
-		assert.equal(await edgeLifetimeFor('2H'), 2 * 3600 * unit);
-		assert.equal(await edgeLifetimeFor('2h'), 2 * 3600 * unit);
-		assert.equal(await edgeLifetimeFor('2m'), 2 * 60 * unit);
-		assert.equal(await edgeLifetimeFor('2s'), 2 * unit);
-		assert.equal(await edgeLifetimeFor('2'), 2 * unit);
-		assert.equal(await edgeLifetimeFor(1.5), 1.5 * unit);
+	it('converts each interval unit to seconds', async () => {
+		assert.equal(await edgeLifetimeFor('2M'), 2 * 30 * 86400);
+		assert.equal(await edgeLifetimeFor('2D'), 2 * 86400);
+		assert.equal(await edgeLifetimeFor('2d'), 2 * 86400);
+		assert.equal(await edgeLifetimeFor('2H'), 2 * 3600);
+		assert.equal(await edgeLifetimeFor('2h'), 2 * 3600);
+		assert.equal(await edgeLifetimeFor('2m'), 2 * 60);
+		assert.equal(await edgeLifetimeFor('2s'), 2);
+		assert.equal(await edgeLifetimeFor('2'), 2);
+		assert.equal(await edgeLifetimeFor(90), 90);
+		assert.equal(await edgeLifetimeFor(1.5), 1.5);
 	});
 
 	it('reads the 200 entry of an object max_age', async () => {
@@ -338,28 +337,30 @@ describe('setCaching', () => {
 		assert.equal(request.cacheKey, undefined);
 	});
 
-	it('converts client_max_age and stale_while_revalidate', async () => {
+	it('converts client_max_age and stale_while_revalidate to seconds', async () => {
 		const caching = { client_max_age: '1m', stale_while_revalidate: '2m' };
 		await routeWithCaching(caching);
-		assert.equal(caching.staleWhileRevalidateSeconds, 2 * caching.clientMaxAgeSeconds);
-		assert.ok(caching.clientMaxAgeSeconds > 0);
+		assert.equal(caching.clientMaxAgeSeconds, 60);
+		assert.equal(caching.staleWhileRevalidateSeconds, 120);
 	});
 
-	it(
-		'converts intervals to seconds',
-		{ todo: 'convertToMS returns milliseconds but feeds the *Seconds fields and s-maxage (index.js:599-604, 725)' },
-		async () => {
-			const { request, responseHeaders } = await routeWithCaching({ max_age: '1h', client_max_age: '1m' });
-			assert.equal(request.maxAgeSeconds, 3600);
-			assert.equal(responseHeaders['Cache-Control'], 's-maxage=3600, max-age=60');
-		}
-	);
+	it('emits the same Cache-Control as cache() with the equivalent seconds', async () => {
+		const { request, responseHeaders } = await routeWithCaching({ max_age: '1h', client_max_age: '1m' });
+		const viaCache = await routeWithCache(
+			{ edge: { maxAgeSeconds: 3600 }, browser: { maxAgeSeconds: 60 } },
+			{ url: '/' }
+		);
+		assert.equal(request.maxAgeSeconds, 3600);
+		assert.equal(responseHeaders['Cache-Control'], 's-maxage=3600, max-age=60');
+		assert.equal(responseHeaders['Cache-Control'], viaCache.responseHeaders['Cache-Control']);
+		assert.equal(request.maxAgeSeconds, viaCache.request.maxAgeSeconds);
+	});
 
 	it('applies caching returned by a handler', async () => {
 		const caching = { max_age: '1h' };
 		const request = createRequest({ url: '/' });
 		await new Router().always(() => ({ caching })).onRequest(request, nextHandler);
-		assert.equal(request.maxAgeSeconds, await edgeLifetimeFor('1h'));
+		assert.equal(request.maxAgeSeconds, 3600);
 		assert.ok(request.cacheKey);
 	});
 });

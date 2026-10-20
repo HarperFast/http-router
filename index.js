@@ -596,12 +596,12 @@ class RequestActions {
 	}
 	setCaching(caching) {
 		if (caching.max_age)
-			caching.maxAgeSeconds = convertToMS(
+			caching.maxAgeSeconds = convertToSeconds(
 				typeof caching.max_age === 'object' ? caching.max_age['200'] : caching.max_age
 			);
-		if (caching.client_max_age) caching.clientMaxAgeSeconds = convertToMS(caching.client_max_age);
+		if (caching.client_max_age) caching.clientMaxAgeSeconds = convertToSeconds(caching.client_max_age);
 		if (caching.stale_while_revalidate)
-			caching.staleWhileRevalidateSeconds = convertToMS(caching.stale_while_revalidate);
+			caching.staleWhileRevalidateSeconds = convertToSeconds(caching.stale_while_revalidate);
 		this.caching = caching;
 	}
 	setProxying(origin) {
@@ -700,7 +700,7 @@ function stringToRegex(str) {
 	} else throw new TypeError('Unknown type of matching requests ' + str);
 }
 
-function convertToMS(interval) {
+function convertToSeconds(interval) {
 	let seconds = 0;
 	if (typeof interval === 'number') seconds = interval;
 	if (typeof interval === 'string') {
@@ -722,7 +722,7 @@ function convertToMS(interval) {
 				break;
 		}
 	}
-	return seconds * 1000;
+	return seconds;
 }
 
 function streamToBuffer(stream) {

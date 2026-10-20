@@ -330,7 +330,7 @@ class Router {
 							cacheControlDirectives.push('no-store', 'no-cache', 'must-revalidate');
 						else cacheControlDirectives.push(`max-age=${caching.clientMaxAgeSeconds}`);
 					}
-					responseHeaders['Cache-Control'] = cacheControlDirectives.join(', ');
+					if (cacheControlDirectives.length) responseHeaders['Cache-Control'] = cacheControlDirectives.join(', ');
 
 					request.cacheGroup = caching.cacheGroup;
 				} else if (actions.caching === false) {

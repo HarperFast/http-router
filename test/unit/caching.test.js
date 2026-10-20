@@ -205,7 +205,7 @@ describe('cache key construction', () => {
 		);
 		assert.equal(JSON.parse(request.cacheKey).pathname, '/swr');
 		assert.equal(request.maxAgeSeconds, undefined);
-		assert.doesNotMatch(responseHeaders['Cache-Control'], /s-maxage/);
+		assert.equal('Cache-Control' in responseHeaders, false);
 	});
 
 	it('leaves the key unset when no edge lifetime is configured', async () => {
@@ -293,6 +293,11 @@ describe('Cache-Control directives', () => {
 
 	it('forbids caching when neither the edge nor the browser may cache', async () => {
 		assert.equal(await cacheControlFor({ browser: false }), 'no-store, no-cache, must-revalidate');
+	});
+
+	it('omits Cache-Control when caching has no directives', async () => {
+		const { responseHeaders } = await routeWithCache({ key: new CustomCacheKey() }, { url: '/' });
+		assert.equal('Cache-Control' in responseHeaders, false);
 	});
 
 	it('emits private alone', async () => {

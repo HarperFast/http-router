@@ -1,8 +1,8 @@
 /**
  * Integration tests for the @harperdb/http-router plugin.
  *
- * The fixture depends on this repository through `file:../..` with `install-links=true`, so
- * `npm run pretest:integration` installs the branch as npm would publish it. Select the Harper
+ * The test apps (fixture/ and second-app/) depend on this repository through `file:../..` with
+ * `install-links=true`, so `npm run pretest:integration` installs the branch as npm would publish it. Select the Harper
  * version with HTTP_ROUTER_TEST_HARPER (5, 4.7 or 4.6; default 5).
  *
  * Proxying is not covered: the router sends proxied requests to port 443 of the origin's
@@ -10,16 +10,24 @@
  */
 import { suite, test, before, after } from 'node:test';
 import { strictEqual, ok } from 'node:assert/strict';
-import { setupHarperWithFixture, teardownHarper, type ContextWithHarper } from '@harperfast/integration-testing';
+import {
+	setupHarperWithFixture,
+	startHarper,
+	teardownHarper,
+	type ContextWithHarper,
+	type HarperContext,
+} from '@harperfast/integration-testing';
 import { createRequire } from 'node:module';
 import { request as httpRequest } from 'node:http';
-import { dirname, join, resolve } from 'node:path';
-import { readFile, writeFile } from 'node:fs/promises';
+import { basename, dirname, join, resolve } from 'node:path';
+import { cp, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
 const FIXTURE_PATH = resolve(dirname(fileURLToPath(import.meta.url)), 'fixture');
+const SECOND_APP_PATH = resolve(dirname(fileURLToPath(import.meta.url)), 'second-app');
 
 const HARPER_PACKAGES: Record<string, string> = { '5': 'harper', '4.7': 'harperdb-4.7', '4.6': 'harperdb-4.6' };
 const harperVersion = process.env.HTTP_ROUTER_TEST_HARPER || '5';
@@ -151,3 +159,38 @@ if (isHarper5) {
 } else {
 	routerSuite(`http-router on Harper ${harperVersion}`);
 }
+
+suite(`two applications with their own router copies on Harper ${harperVersion}`, () => {
+	const ctx = { name: 'http-router two applications' } as ContextWithHarper;
+
+	before(async () => {
+		const dataRootDir = await mkdtemp(
+			join(process.env.HARPER_INTEGRATION_TEST_INSTALL_PARENT_DIR || tmpdir(), 'harper-integration-test-')
+		);
+		for (const application of [FIXTURE_PATH, SECOND_APP_PATH]) {
+			await cp(application, join(dataRootDir, 'components', basename(application)), { recursive: true });
+		}
+		ctx.harper = { dataRootDir } as HarperContext;
+		await startHarper(ctx, { harperBinPath, env: harperEnv });
+	});
+
+	after(async () => {
+		await teardownHarper(ctx);
+	});
+
+	test('each application serves static files from its own directory', async () => {
+		const first = await fetch(`${ctx.harper.httpURL}/static/hello.txt`);
+		strictEqual(first.status, 200);
+		strictEqual(await first.text(), 'static file served by the router\n');
+		const second = await fetch(`${ctx.harper.httpURL}/second/static/hello.txt`);
+		strictEqual(second.status, 200);
+		strictEqual(await second.text(), 'static file served by the second app\n');
+	});
+
+	test('each application resolves its own origins', async () => {
+		const first = await getWithHost(`${ctx.harper.httpURL}/destination-check`, 'api.example.test');
+		strictEqual(first.location, '/destination-ok');
+		const second = await getWithHost(`${ctx.harper.httpURL}/second/destination-check`, 'api.second.example.test');
+		strictEqual(second.location, '/second-destination-ok');
+	});
+});

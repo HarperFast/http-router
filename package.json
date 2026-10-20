@@ -33,7 +33,7 @@
 	],
 	"scripts": {
 		"format": "prettier --write .",
-		"pretest:integration": "node -e \"require('node:fs').rmSync('integrationTests/fixture/node_modules', { recursive: true, force: true })\" && npm install --prefix integrationTests/fixture",
+		"pretest:integration": "node integrationTests/installFixtures.ts",
 		"test:integration": "harper-integration-test-run integrationTests/**/*.test.ts"
 	},
 	"dependencies": {
@@ -43,7 +43,8 @@
 	"devDependencies": {
 		"@harperdb/code-guidelines": "^0.0.2",
 		"@harperfast/integration-testing": "^0.4.0",
-		"harper": "^5.2.1",
+		"@types/node": "^22.20.5",
+		"harper": "^5.3.2",
 		"harperdb-4.6": "npm:harperdb@4.6.1",
 		"harperdb-4.7": "npm:harperdb@4.7.42",
 		"prettier": "^3.3.3",

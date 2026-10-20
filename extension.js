@@ -1,8 +1,9 @@
 const { getCacheHandler } = require('@harperdb/http-cache/extension');
-const { basename, dirname, join, matchesGlob } = require('node:path');
+const { basename, dirname, join } = require('node:path');
 const { existsSync, realpathSync, watch } = require('node:fs');
 const { readdir } = require('node:fs/promises');
 const { pathToFileURL } = require('node:url');
+const picomatch = require('picomatch');
 const { getRouterState } = require('./routerState.js');
 
 exports.suppressHandleApplicationWarning = true;
@@ -173,13 +174,15 @@ function mayContainMatches(directorySegments, pattern) {
 	for (let index = 0; index < directorySegments.length; index++) {
 		const patternSegment = patternSegments[index];
 		if (patternSegment === '**') return !directorySegments.slice(index).some((segment) => segment.startsWith('.'));
-		if (patternSegment === undefined || !matchesGlob(directorySegments[index], patternSegment)) return false;
+		if (patternSegment === undefined || !picomatch.isMatch(directorySegments[index], patternSegment)) return false;
 	}
 	return patternSegments.length > directorySegments.length;
 }
 
 async function findEntries(directory, files) {
 	const { source, ignore } = normalizeFilesOption(files);
+	const isSource = picomatch(source);
+	const isIgnored = ignore.length > 0 ? picomatch(ignore) : () => false;
 	const entries = [];
 	async function walk(relativeDirectory) {
 		const directorySegments = relativeDirectory ? relativeDirectory.split('/') : [];
@@ -193,11 +196,7 @@ async function findEntries(directory, files) {
 				continue;
 			}
 			const kind = classifyEntry(dirent.name);
-			if (
-				kind &&
-				source.some((pattern) => matchesGlob(relativePath, pattern)) &&
-				!ignore.some((pattern) => matchesGlob(relativePath, pattern))
-			) {
+			if (kind && isSource(relativePath) && !isIgnored(relativePath)) {
 				entries.push({ path: join(directory, relativePath), ...kind });
 			}
 		}

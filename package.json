@@ -40,6 +40,7 @@
 	},
 	"dependencies": {
 		"@harperdb/http-cache": "github:HarperFast/http-cache#d48bafb",
+		"picomatch": "^4.0.7",
 		"send": "^1.1.0"
 	},
 	"devDependencies": {

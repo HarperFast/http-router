@@ -136,8 +136,11 @@ describe('Router methods', () => {
 		assert.deepEqual(router.rules, []);
 	});
 
-	it('if sends later match calls to a nested router', async () => {
-		const router = new Router().if({ headers: { 'x-beta': '1' } }).match('/feature', marker('beta'));
+	it('if ignores its handler argument and sends later match calls to a nested router', async () => {
+		let ignoredHandlerCalls = 0;
+		const router = new Router()
+			.if({ headers: { 'x-beta': '1' } }, () => ignoredHandlerCalls++)
+			.match('/feature', marker('beta'));
 		assert.equal(router.rules.length, 1);
 		assert.equal(router.rules[0].router, router.currentRouter);
 		assert.equal(router.currentRouter.rules.length, 1);
@@ -146,6 +149,7 @@ describe('Router methods', () => {
 		assert.equal((await router.onRequest(betaRequest, nextHandler))().headers['x-matched'], 'beta');
 		const regularRequest = createRequest({ url: '/feature', headers: { 'x-beta': '0' } });
 		assert.equal(await router.onRequest(regularRequest, nextHandler), nextHandler);
+		assert.equal(ignoredHandlerCalls, 0);
 	});
 
 	it('if supports nesting another if', async () => {

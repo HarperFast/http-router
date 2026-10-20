@@ -1,18 +1,11 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { loadParseCookies, parseCookiesPath } = require('./helpers/routerHarness.js');
-
-const parseCookies = loadParseCookies();
+const { parseCookies } = require('../../utils/parseCookies.js');
 
 describe('parseCookies', () => {
-	it(
-		'is exported from utils/parseCookies.js',
-		{ todo: 'the module never assigns module.exports (utils/parseCookies.js:32)' },
-		() => {
-			delete require.cache[parseCookiesPath];
-			assert.equal(typeof require(parseCookiesPath).parseCookies, 'function');
-		}
-	);
+	it('is exported from utils/parseCookies.js', () => {
+		assert.equal(typeof parseCookies, 'function');
+	});
 
 	it('returns an empty object for a missing or empty header', () => {
 		assert.deepEqual(parseCookies(undefined), {});

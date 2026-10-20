@@ -1,13 +1,11 @@
 const https = require('node:https');
 const path = require('node:path');
 const Module = require('node:module');
-const { readFileSync } = require('node:fs');
 const { EventEmitter } = require('node:events');
 const { PassThrough, Readable, Writable } = require('node:stream');
 
 const repositoryRoot = path.resolve(__dirname, '../../..');
 const indexPath = path.join(repositoryRoot, 'index.js');
-const parseCookiesPath = path.join(repositoryRoot, 'utils/parseCookies.js');
 const sendPath = require.resolve('send', { paths: [repositoryRoot] });
 
 const loggedMessages = { info: [], warn: [], error: [] };
@@ -68,27 +66,6 @@ sendModule.exports = fakeSend;
 sendModule.loaded = true;
 require.cache[sendPath] = sendModule;
 
-/**
- * Loads parseCookies even though utils/parseCookies.js does not assign module.exports, so index.js can build
- * cookie cache keys. Once the module exports the function, the real module is used unchanged.
- */
-function loadParseCookies() {
-	const exported = require(parseCookiesPath).parseCookies;
-	if (typeof exported === 'function') return exported;
-	delete require.cache[parseCookiesPath];
-	const compiledModule = new Module(parseCookiesPath, module);
-	compiledModule.filename = parseCookiesPath;
-	compiledModule.paths = Module._nodeModulePaths(path.dirname(parseCookiesPath));
-	compiledModule._compile(
-		readFileSync(parseCookiesPath, 'utf8') + '\nmodule.exports.parseCookies = parseCookies;',
-		parseCookiesPath
-	);
-	compiledModule.loaded = true;
-	require.cache[parseCookiesPath] = compiledModule;
-	return compiledModule.exports.parseCookies;
-}
-loadParseCookies();
-
 const extension = require(path.join(repositoryRoot, 'extension.js'));
 
 function loadRouterModule() {
@@ -143,11 +120,9 @@ module.exports = {
 	clearLoggedMessages,
 	createRequest,
 	extension,
-	loadParseCookies,
 	loadRouterModule,
 	loggedMessages,
 	nextHandler,
-	parseCookiesPath,
 	proxyStub,
 	repositoryRoot,
 	sendStub,

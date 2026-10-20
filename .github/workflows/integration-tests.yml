@@ -40,7 +40,7 @@ jobs:
           fi
 
   integration-tests:
-    name: Integration Tests (Node ${{ matrix.node-version }})
+    name: Integration Tests (Node ${{ matrix.node-version }}, Harper ${{ matrix.harper-version }})
     needs: [generate-node-version-matrix]
     runs-on: ubuntu-latest
 
@@ -48,6 +48,7 @@ jobs:
       fail-fast: false
       matrix:
         node-version: ${{ fromJSON(needs.generate-node-version-matrix.outputs.node-versions) }}
+        harper-version: ['5', '4.7', '4.6']
 
     steps:
       - name: Checkout code
@@ -64,6 +65,7 @@ jobs:
       - name: Run integration tests
         run: npm run test:integration
         env:
+          HTTP_ROUTER_TEST_HARPER: ${{ matrix.harper-version }}
           HARPER_INTEGRATION_TEST_LOG_DIR: /tmp/harper-test-logs
           FORCE_COLOR: '1'
 
@@ -71,6 +73,6 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: harper-logs-node-${{ matrix.node-version }}
+          name: harper-logs-node-${{ matrix.node-version }}-harper-${{ matrix.harper-version }}
           path: /tmp/harper-test-logs/
           retention-days: 7

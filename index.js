@@ -1,6 +1,6 @@
 const { URLSearchParams } = require('node:url');
-const entryModule = require('./extension.js');
-const { origins } = entryModule;
+const routerState = require('./routerState.js').getRouterState(__dirname);
+const { origins } = routerState;
 const { request: httpsRequest } = require('node:https');
 const { join } = require('node:path');
 const { CustomCacheKey } = require('./CustomCacheKey'); // to re-export
@@ -437,7 +437,7 @@ class Router {
 							}
 							send(request, path, {
 								dotfiles: 'allow',
-								root: entryModule.baseDir,
+								root: routerState.baseDir,
 							})
 								.pipe(nodeResponse)
 								.on('finish', () => resolve())

@@ -1,142 +1,153 @@
 /**
- * Integration tests for the @harperdb/http-router extension component.
+ * Integration tests for the @harperdb/http-router plugin.
  *
- * Verifies the Router API under Harper v5:
- *   - The component starts and Harper initialises correctly.
- *   - Permanent and temporary redirect rules return the correct status codes and
- *     Location headers.
- *   - Response headers set in route rules are included in redirect responses (the
- *     router merges responseHeaders into { ...responseHeaders, Location } on the
- *     redirect branch — the only code path that applies them directly).
- *   - The fallback (.use()) pass-through routes unknown paths to the next handler
- *     without crashing Harper.
+ * The fixture depends on this repository through `file:../..` with `install-links=true`, so
+ * `npm run pretest:integration` installs the branch as npm would publish it. Select the Harper
+ * version with HTTP_ROUTER_TEST_HARPER (5, 4.7 or 4.6; default 5).
  *
- * Note on scope: tests run the http-router extension in isolation (no downstream
- * response-generating component). Routes that only set cache parameters and pass
- * through to nextHandler are not exercised here because the cache middleware
- * requires an actual upstream response to process. Those paths work correctly in
- * production where a content component (e.g. @harperdb/nextjs) provides responses.
- *
- * Note on local runs: macOS loopback aliases 127.0.0.2+ are not configured, so
- * local runs will fail with EADDRNOTAVAIL. CI on ubuntu-latest is the gate.
+ * Proxying is not covered: the router sends proxied requests to port 443 of the origin's
+ * hostname, which a test cannot bind without elevated privileges.
  */
-import { suite, test, before, after, type SuiteContext } from 'node:test';
+import { suite, test, before, after } from 'node:test';
 import { strictEqual, ok } from 'node:assert/strict';
 import { setupHarperWithFixture, teardownHarper, type ContextWithHarper } from '@harperfast/integration-testing';
 import { createRequire } from 'node:module';
+import { request as httpRequest } from 'node:http';
 import { dirname, join, resolve } from 'node:path';
-import { cp, mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readFile, writeFile } from 'node:fs/promises';
+import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = resolve(__dirname, '..');
+const FIXTURE_PATH = resolve(dirname(fileURLToPath(import.meta.url)), 'fixture');
 
-// harper's `exports` map only exposes "."; 'harper/dist/bin/harper.js' is not resolvable
-// (ERR_PACKAGE_PATH_NOT_EXPORTED). Resolve the CLI from the exported main entry and pass
-// it explicitly as harperBinPath — the documented harness escape hatch.
-const harperBinPath = resolve(dirname(require.resolve('harper')), 'bin/harper.js');
+const HARPER_PACKAGES: Record<string, string> = { '5': 'harper', '4.7': 'harperdb-4.7', '4.6': 'harperdb-4.6' };
+const harperVersion = process.env.HTTP_ROUTER_TEST_HARPER || '5';
+const harperPackage = HARPER_PACKAGES[harperVersion];
+ok(harperPackage, `HTTP_ROUTER_TEST_HARPER must be one of ${Object.keys(HARPER_PACKAGES).join(', ')}`);
+const isHarper5 = harperPackage === 'harper';
+// Neither package exports its CLI, so resolve it from the package's main entry.
+const harperBinPath = resolve(dirname(require.resolve(harperPackage)), isHarper5 ? 'bin/harper.js' : 'bin/harperdb.js');
+// Harper 4 prompts for the terms and conditions on install unless they are accepted up front.
+const harperEnv = { TC_AGREEMENT: 'yes' };
 
-// Fixture is a self-contained Harper app in integrationTests/fixture/.
-// It has config.yaml listing @harperdb/http-router as a component (with files: '*.js'),
-// a routes.js that exercises the Router API, and pre-installed node_modules
-// (committed so CI can use npm ci without a separate install step).
-const FIXTURE_PATH = resolve(__dirname, 'fixture');
-
-// The component files the fixture's config.yaml loads (`files: '*.js'`), plus the
-// manifest that declares `main`/`type`/deps.
-const COMPONENT_FILES = ['package.json', 'config.yaml', 'index.js', 'extension.js', 'CustomCacheKey.js'];
-
-/**
- * Copy the fixture to a scratch dir and overlay the working tree onto its vendored
- * copy of @harperdb/http-router.
- *
- * The fixture's committed node_modules holds the *published* 0.4.2 tarball, so running
- * the fixture as-is exercises the last release rather than this branch — a regression
- * introduced in this PR would pass CI unnoticed. Overlaying the repo's own component
- * files makes the suite test the code under review. Staging into a temp dir keeps the
- * tracked fixture untouched.
- */
-async function stageFixture(): Promise<{ fixturePath: string; cleanup: () => Promise<void> }> {
-	const staging = await mkdtemp(join(tmpdir(), 'http-router-fixture-'));
-	const fixturePath = join(staging, 'fixture');
-	await cp(FIXTURE_PATH, fixturePath, { recursive: true });
-	const vendored = join(fixturePath, 'node_modules', '@harperdb', 'http-router');
-	await Promise.all(COMPONENT_FILES.map((file) => cp(join(REPO_ROOT, file), join(vendored, file))));
-	return { fixturePath, cleanup: () => rm(staging, { recursive: true, force: true }) };
+function getWithHost(url: string, host: string): Promise<{ status: number; location: string | undefined }> {
+	return new Promise((resolvePromise, reject) => {
+		httpRequest(url, { headers: { Host: host } }, (response) => {
+			response.resume();
+			response.on('end', () =>
+				resolvePromise({ status: response.statusCode ?? 0, location: response.headers.location })
+			);
+		})
+			.on('error', reject)
+			.end();
+	});
 }
 
-// One Harper instance for the whole file. Previously each of the three suites ran its
-// own setup/teardown, so CI paid for three sequential cold starts and three loopback
-// allocations against an identical fixture.
-const ctx = { name: 'http-router' } as ContextWithHarper;
+async function getRedirectLocation(url: string): Promise<string | null> {
+	const response = await fetch(url, { redirect: 'manual' });
+	await response.arrayBuffer();
+	return response.headers.get('location');
+}
 
-suite('http-router', (_suiteCtx: SuiteContext) => {
-	let cleanupFixture: () => Promise<void>;
-
-	before(async () => {
-		const staged = await stageFixture();
-		cleanupFixture = staged.cleanup;
-		await setupHarperWithFixture(ctx, staged.fixturePath, { harperBinPath });
-	});
-
-	after(async () => {
-		await teardownHarper(ctx);
-		await cleanupFixture?.();
-	});
-
-	test('Harper starts and the router component loads', async () => {
-		const { httpURL } = ctx.harper;
-		const res = await fetch(`${httpURL}/`);
-		await res.arrayBuffer();
-		ok(res.status < 500, `Harper should serve requests, got status ${res.status}`);
-	});
-
+function routingTests(ctx: ContextWithHarper) {
 	test('GET /old-path returns 301 with Location: /new-path', async () => {
-		const { httpURL } = ctx.harper;
-		const res = await fetch(`${httpURL}/old-path`, { redirect: 'manual' });
-		await res.arrayBuffer();
-		strictEqual(res.status, 301, `expected 301 Moved Permanently, got ${res.status}`);
-		const location = res.headers.get('location');
-		ok(
-			location === '/new-path' || location?.endsWith('/new-path'),
-			`expected Location: /new-path, got ${location}`
-		);
+		const response = await fetch(`${ctx.harper.httpURL}/old-path`, { redirect: 'manual' });
+		await response.arrayBuffer();
+		strictEqual(response.status, 301);
+		strictEqual(response.headers.get('location'), '/new-path');
 	});
 
 	test('GET /temp-redirect returns 302 with Location: /destination', async () => {
-		const { httpURL } = ctx.harper;
-		const res = await fetch(`${httpURL}/temp-redirect`, { redirect: 'manual' });
-		await res.arrayBuffer();
-		strictEqual(res.status, 302, `expected 302 Found, got ${res.status}`);
-		const location = res.headers.get('location');
-		ok(
-			location === '/destination' || location?.endsWith('/destination'),
-			`expected Location: /destination, got ${location}`
-		);
+		const response = await fetch(`${ctx.harper.httpURL}/temp-redirect`, { redirect: 'manual' });
+		await response.arrayBuffer();
+		strictEqual(response.status, 302);
+		strictEqual(response.headers.get('location'), '/destination');
 	});
 
 	test('GET /redirect-with-header includes X-Custom-Header in the redirect response', async () => {
-		const { httpURL } = ctx.harper;
-		// The router merges responseHeaders into redirect responses:
-		// return () => ({ status, headers: { ...responseHeaders, Location } })
-		const res = await fetch(`${httpURL}/redirect-with-header`, { redirect: 'manual' });
-		await res.arrayBuffer();
-		strictEqual(res.status, 302, `expected 302 redirect, got ${res.status}`);
-		const customHeader = res.headers.get('x-custom-header');
-		ok(
-			customHeader === 'test-value',
-			`expected X-Custom-Header: test-value on redirect response, got ${customHeader ?? '(absent)'}`
-		);
+		const response = await fetch(`${ctx.harper.httpURL}/redirect-with-header`, { redirect: 'manual' });
+		await response.arrayBuffer();
+		strictEqual(response.status, 302);
+		strictEqual(response.headers.get('x-custom-header'), 'test-value');
 	});
 
 	test('GET /unmatched-route falls through without a server error', async () => {
-		const { httpURL } = ctx.harper;
-		const res = await fetch(`${httpURL}/unmatched-route-xyz`);
-		await res.arrayBuffer();
-		// The router's .use() passes unmatched requests to the next handler.
-		// Harper handles it (typically 404) without crashing.
-		ok(res.status < 500, `unmatched route should not cause a server error, got ${res.status}`);
+		const response = await fetch(`${ctx.harper.httpURL}/unmatched-route-xyz`);
+		await response.arrayBuffer();
+		ok(response.status < 500, `unmatched route should not cause a server error, got ${response.status}`);
 	});
-});
+
+	test('origins from edgio.config.js are visible to Router.destination() in routes.js', async () => {
+		const matched = await getWithHost(`${ctx.harper.httpURL}/destination-check`, 'api.example.test');
+		strictEqual(matched.status, 302);
+		strictEqual(matched.location, '/destination-ok');
+		const unmatched = await getWithHost(`${ctx.harper.httpURL}/destination-check`, 'other.example.test');
+		ok(
+			unmatched.status !== 302,
+			`a request for another host should not match the destination, got ${unmatched.status}`
+		);
+	});
+
+	test('serveStatic serves files relative to the application directory', async () => {
+		const response = await fetch(`${ctx.harper.httpURL}/static/hello.txt`);
+		strictEqual(response.status, 200);
+		strictEqual(await response.text(), 'static file served by the router\n');
+	});
+
+	test('a cached route is a MISS and then a HIT', async () => {
+		const url = `${ctx.harper.httpURL}/content/${Date.now()}`;
+		const miss = await fetch(url);
+		const missBody = await miss.text();
+		strictEqual(miss.status, 200);
+		strictEqual(miss.headers.get('x-harperdb-cache'), 'MISS');
+		strictEqual(miss.headers.get('x-harper-cache'), 'MISS');
+
+		const hit = await fetch(url);
+		strictEqual(hit.status, 200);
+		strictEqual(await hit.text(), missBody);
+		strictEqual(hit.headers.get('x-harperdb-cache'), 'HIT');
+		strictEqual(hit.headers.get('x-harper-cache'), 'HIT');
+		strictEqual(hit.headers.get('x-origin-hits'), miss.headers.get('x-origin-hits'));
+	});
+}
+
+function routerSuite(name: string, config?: object) {
+	const ctx = { name } as ContextWithHarper;
+	suite(name, () => {
+		before(async () => {
+			await setupHarperWithFixture(ctx, FIXTURE_PATH, { harperBinPath, env: harperEnv, config });
+		});
+
+		after(async () => {
+			await teardownHarper(ctx);
+		});
+
+		routingTests(ctx);
+
+		test('a changed routes.js replaces the active routes', async () => {
+			strictEqual(await getRedirectLocation(`${ctx.harper.httpURL}/routes-version`), '/routes-v1');
+			const routesPath = join(ctx.harper.dataRootDir, 'components', 'fixture', 'routes.js');
+			const routes = await readFile(routesPath, 'utf8');
+			await writeFile(routesPath, routes.replace("'/routes-v1'", "'/routes-v2'"));
+
+			let location: string | null = null;
+			for (let attempt = 0; attempt < 50 && location !== '/routes-v2'; attempt++) {
+				await delay(200);
+				location = await getRedirectLocation(`${ctx.harper.httpURL}/routes-version`);
+			}
+			strictEqual(location, '/routes-v2');
+			strictEqual(await getRedirectLocation(`${ctx.harper.httpURL}/old-path`), '/new-path');
+		});
+	});
+}
+
+if (isHarper5) {
+	for (const allowedDirectory of ['app', 'any']) {
+		routerSuite(`http-router on Harper 5 with applications.allowedDirectory: ${allowedDirectory}`, {
+			applications: { allowedDirectory },
+		});
+	}
+} else {
+	routerSuite(`http-router on Harper ${harperVersion}`);
+}

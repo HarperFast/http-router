@@ -517,7 +517,8 @@ class Rule {
 		}
 		const query = this.condition.query;
 		if (query) {
-			let requestQuery = new URLSearchParams(request.url);
+			const queryStart = request.url.indexOf('?');
+			const requestQuery = new URLSearchParams(queryStart === -1 ? '' : request.url.slice(queryStart + 1));
 			for (let key in query) {
 				if (!query[key].test(requestQuery.get(key))) {
 					return false;

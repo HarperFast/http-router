@@ -227,14 +227,11 @@ describe('Rule matching', () => {
 		assert.equal(await matchedMarker(router, { url: '/elsewhere?lang=en&preview=true' }), undefined);
 	});
 
-	it(
-		'matches a query condition on the first query parameter',
-		{ todo: 'Rule.match parses URLSearchParams from the whole URL, so the first key includes the path (index.js:520)' },
-		async () => {
-			const router = new Router().match({ query: { preview: 'true' } }, marker('preview'));
-			assert.equal(await matchedMarker(router, { url: '/page?preview=true' }), 'preview');
-		}
-	);
+	it('matches a query condition on the first query parameter', async () => {
+		const router = new Router().match({ query: { preview: 'true' } }, marker('preview'));
+		assert.equal(await matchedMarker(router, { url: '/page?preview=true' }), 'preview');
+		assert.equal(await matchedMarker(router, { url: '/preview=true' }), undefined);
+	});
 
 	it('matches header conditions', async () => {
 		const router = new Router().match({ headers: { 'x-device': 'mobile' } }, marker('mobile'));

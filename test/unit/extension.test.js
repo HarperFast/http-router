@@ -358,7 +358,58 @@ describe('reloading', () => {
 			`module.exports = { origins: [{ name: 'two', hosts: [{ location: 'two.example.com' }] }] };\n`
 		);
 		watchFor(configPath).listener('change');
-		await waitFor(async () => (await request({ pathname: '/' })) === 'one,two');
+		await waitFor(async () => (await request({ pathname: '/' })) === 'two');
+		assert.equal(routerState.origins.has('one'), false);
+	});
+
+	it('drops the origins of a removed config and re-evaluates the routes', async () => {
+		const routerStatePath = JSON.stringify(path.join(repositoryRoot, 'routerState.js'));
+		const { directory, request } = await start({
+			'edgio.config.js': `module.exports = { origins: [{ name: 'edgio', hosts: [{ location: 'edgio.example.com' }] }] };\n`,
+			'layer0.config.js': `module.exports = { backends: { layer0: { domainOrIp: 'layer0.example.com' } } };\n`,
+			'routes.js': `const { origins } = require(${routerStatePath}).getRouterState(${JSON.stringify(repositoryRoot)});
+				const seen = [...origins.keys()].sort().join(',');
+				module.exports = { onRequest: (request, next) => () => seen };\n`,
+		});
+		assert.equal(await request({ pathname: '/' }), 'edgio,layer0');
+		const configPath = path.join(directory, 'edgio.config.js');
+		fs.rmSync(configPath);
+		watchFor(configPath).listener('rename');
+		await waitFor(async () => (await request({ pathname: '/' })) === 'layer0');
+		assert.deepEqual([...routerState.origins.keys()], ['layer0']);
+	});
+
+	it('discards a routes file that is removed while it is being imported', async () => {
+		const directory = createApplication({
+			'routes.js': routesSource({ '/a': 'a' }),
+			'b.routes.js': routesSource({ '/b': 'b' }),
+		});
+		const scope = createScope(directory, { files: '*.js' });
+		openScopes.push(scope);
+		let releaseImport;
+		scope.import = async (url) => {
+			const moduleExports = await import(url.href);
+			if (url.pathname.endsWith('/b.routes.js') && releaseImport === null) {
+				await new Promise((resolve) => (releaseImport = resolve));
+			}
+			return moduleExports;
+		};
+		await handleApplication(scope);
+		const request = (requestOptions) => scope.httpHandlers[0](requestOptions, nextHandler);
+		assert.equal(await request({ pathname: '/b' }), 'b');
+
+		const removedPath = path.join(directory, 'b.routes.js');
+		const { listener } = watchFor(removedPath);
+		releaseImport = null;
+		listener('change');
+		await waitFor(() => typeof releaseImport === 'function');
+		fs.rmSync(removedPath);
+		listener('rename');
+		releaseImport();
+		await waitFor(async () => (await request({ pathname: '/b' })) === 'next handler result');
+		await delay(20);
+		assert.equal(await request({ pathname: '/b' }), 'next handler result');
+		assert.equal(await request({ pathname: '/a' }), 'a');
 	});
 
 	it('coalesces events that arrive before a reload starts', async () => {

@@ -15,11 +15,13 @@ exports.handleApplication = async function (scope) {
 	const originConfigPaths = new Set();
 	const routesPaths = new Set();
 	const loadedRoutes = new Map();
+	const originsByConfig = new Map();
 	const pendingOriginConfigs = new Set();
 	const pendingRoutes = new Set();
 	let activeRoutes = [];
 	let importCount = 0;
 	let reloadQueued = false;
+	let originsChanged = false;
 	let loading = Promise.resolve();
 
 	async function importEntry(path) {
@@ -33,31 +35,45 @@ exports.handleApplication = async function (scope) {
 
 	async function loadOriginConfig(path) {
 		const config = await importEntry(path);
+		const origins = new Map();
 		if (basename(path).includes('edgio.config.')) {
 			for (let origin of config.origins || []) {
-				state.origins.set(origin.name, {
+				origins.set(origin.name, {
 					hostname: origin.hosts?.[0]?.location?.[0]?.hostname ?? origin.hosts?.[0]?.location,
 					rejectUnauthorized: !origin.tls_verify?.allow_self_signed_certs,
 					servername: origin.tls_verify?.sni_hint_and_strict_san_check,
 					hostHeader: origin.override_host_header,
 				});
 			}
-			return;
+		} else {
+			for (let originName in config.backends) {
+				const origin = config.backends[originName];
+				origins.set(originName, {
+					hostname: origin.domainOrIp,
+					hostHeader: origin.hostHeader,
+					rejectUnauthorized: !origin.disableCheckCert,
+				});
+			}
 		}
-		for (let originName in config.backends) {
-			const origin = config.backends[originName];
-			state.origins.set(originName, {
-				hostname: origin.domainOrIp,
-				hostHeader: origin.hostHeader,
-				rejectUnauthorized: !origin.disableCheckCert,
-			});
+		// the file may have been removed while it was being imported
+		if (!originConfigPaths.has(path)) return;
+		originsByConfig.set(path, origins);
+		originsChanged = true;
+	}
+
+	// index.js holds a reference to state.origins, so it is rebuilt in place rather than replaced
+	function applyOrigins() {
+		state.origins.clear();
+		for (const path of [...originsByConfig.keys()].sort()) {
+			for (const [name, origin] of originsByConfig.get(path)) state.origins.set(name, origin);
 		}
 	}
 
 	async function loadRoutes(path) {
 		let routes = await importEntry(path);
 		if (typeof routes === 'function') routes = routes();
-		loadedRoutes.set(path, routes);
+		// the file may have been removed while it was being imported
+		if (routesPaths.has(path)) loadedRoutes.set(path, routes);
 	}
 
 	async function loadPending() {
@@ -66,10 +82,15 @@ exports.handleApplication = async function (scope) {
 			pendingOriginConfigs.delete(path);
 			try {
 				await loadOriginConfig(path);
-				for (const routesPath of routesPaths) pendingRoutes.add(routesPath);
 			} catch (error) {
 				scope.logger.error(`Failed to load http-router origins from ${path}`, error);
 			}
+		}
+		if (originsChanged) {
+			originsChanged = false;
+			applyOrigins();
+			// routes resolve origins when they are defined, so they are re-evaluated against the new set
+			for (const routesPath of routesPaths) pendingRoutes.add(routesPath);
 		}
 		for (const path of [...pendingRoutes].sort()) {
 			pendingRoutes.delete(path);
@@ -100,6 +121,9 @@ exports.handleApplication = async function (scope) {
 		originConfigPaths.delete(path);
 		routesPaths.delete(path);
 		loadedRoutes.delete(path);
+		pendingOriginConfigs.delete(path);
+		pendingRoutes.delete(path);
+		if (originsByConfig.delete(path)) originsChanged = true;
 	}
 
 	function watchEntry(path) {

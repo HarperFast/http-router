@@ -39,7 +39,7 @@
 		"test:integration": "harper-integration-test-run integrationTests/**/*.test.ts"
 	},
 	"dependencies": {
-		"@harperdb/http-cache": "github:HarperFast/http-cache#d48bafb",
+		"@harperdb/http-cache": "github:HarperFast/http-cache#e3cbbf1",
 		"picomatch": "^4.0.7",
 		"send": "^1.1.0"
 	},

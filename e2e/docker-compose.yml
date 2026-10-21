@@ -1,0 +1,23 @@
+services:
+  origin:
+    build: ./origin
+
+  harper:
+    build:
+      context: .
+      dockerfile: harper.Dockerfile
+      args:
+        HARPER_IMAGE: ${HARPER_IMAGE:-harperfast/harper:5.3.2}
+    depends_on:
+      - origin
+    environment:
+      HDB_ADMIN_USERNAME: admin
+      HDB_ADMIN_PASSWORD: e2e-password
+    ports:
+      - '127.0.0.1::9926'
+    healthcheck:
+      test: ['CMD-SHELL', "curl -sk -o /dev/null -w '%{http_code}' https://localhost:9926/old-path | grep -q 301"]
+      interval: 3s
+      timeout: 3s
+      retries: 60
+      start_period: 5s

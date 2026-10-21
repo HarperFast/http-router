@@ -1,0 +1,5 @@
+'@harperdb/http-router':
+  package: '@harperdb/http-router'
+  files: '*.js'
+jsResource:
+  files: 'content.js'

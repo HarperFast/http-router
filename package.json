@@ -36,10 +36,11 @@
 		"test:unit": "node --test 'test/unit/**/*.test.js'",
 		"test:unit:coverage": "node --test --experimental-test-coverage --test-coverage-include='*.js' --test-coverage-include='utils/*.js' --test-coverage-lines=100 --test-coverage-functions=100 'test/unit/**/*.test.js'",
 		"pretest:integration": "node integrationTests/installFixtures.ts",
-		"test:integration": "harper-integration-test-run integrationTests/**/*.test.ts"
+		"test:integration": "harper-integration-test-run integrationTests/**/*.test.ts",
+		"test:e2e": "sh e2e/run.sh"
 	},
 	"dependencies": {
-		"@harperdb/http-cache": "github:HarperFast/http-cache#e3cbbf1",
+		"@harperdb/http-cache": "github:HarperFast/http-cache#7e10a28",
 		"picomatch": "^4.0.7",
 		"send": "^1.1.0"
 	},

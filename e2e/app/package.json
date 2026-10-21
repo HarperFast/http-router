@@ -1,0 +1,9 @@
+{
+	"name": "http-router-e2e-app",
+	"version": "1.0.0",
+	"private": true,
+	"description": "Barebones Harper 5 application that runs @harperdb/http-router for live end-to-end tests",
+	"dependencies": {
+		"@harperdb/http-router": "file:http-router.tgz"
+	}
+}

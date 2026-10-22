@@ -30,3 +30,5 @@ function parseCookies(cookieHeader) {
 
 	return cookies;
 }
+
+module.exports = { parseCookies };

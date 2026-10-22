@@ -1,0 +1,9 @@
+{
+	"name": "http-router-second-test-app",
+	"version": "1.0.0",
+	"private": true,
+	"description": "A second application with its own copy of @harperdb/http-router",
+	"dependencies": {
+		"@harperdb/http-router": "file:../.."
+	}
+}

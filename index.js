@@ -1,6 +1,6 @@
 const { URLSearchParams } = require('node:url');
-const entryModule = require('./extension.js');
-const { origins } = entryModule;
+const routerState = require('./routerState.js').getRouterState(__dirname);
+const { origins } = routerState;
 const { request: httpsRequest } = require('node:https');
 const { join } = require('node:path');
 const { CustomCacheKey } = require('./CustomCacheKey'); // to re-export
@@ -80,7 +80,10 @@ class Router {
 		return this;
 	}
 	fallback(options) {
-		return this.match(null, options);
+		this.match(null, options);
+		const router = this.currentRouter || this;
+		router.rules[router.rules.length - 1].isFallback = true;
+		return this;
 	}
 	always(options) {
 		return this.match(null, options);
@@ -327,7 +330,7 @@ class Router {
 							cacheControlDirectives.push('no-store', 'no-cache', 'must-revalidate');
 						else cacheControlDirectives.push(`max-age=${caching.clientMaxAgeSeconds}`);
 					}
-					responseHeaders['Cache-Control'] = cacheControlDirectives.join(', ');
+					if (cacheControlDirectives.length) responseHeaders['Cache-Control'] = cacheControlDirectives.join(', ');
 
 					request.cacheGroup = caching.cacheGroup;
 				} else if (actions.caching === false) {
@@ -348,8 +351,15 @@ class Router {
 							}
 						}
 					} else if (proxying.path) {
-						const param = rule.condition.path.exec(request.pathname)[1];
-						url = proxying.path.replace(/:[\w\*\+]+/, param) + request.url.slice(request.pathname.length);
+						let proxyPath = proxying.path;
+						if (/:[\w\*\+]+/.test(proxyPath)) {
+							const param = rule.condition?.path?.exec?.(request.pathname)?.[1];
+							if (param === undefined) {
+								throw new Error(`Proxy path "${proxyPath}" needs a path parameter from the route to substitute`);
+							}
+							proxyPath = proxyPath.replace(/:[\w\*\+]+/, param);
+						}
+						url = proxyPath + request.url.slice(request.pathname.length);
 					}
 					const headers = request.headers.asObject;
 					delete headers.host;
@@ -415,9 +425,14 @@ class Router {
 								});
 								logger.info(`Sending proxied request for ${request.url} to ${originHostname}`);
 								if (request.method !== 'GET' && request.method !== 'HEAD') {
-									streamToBuffer(request._nodeRequest).then((buffer) => {
-										proxiedRequest.end(buffer);
-									});
+									streamToBuffer(request._nodeRequest).then(
+										(buffer) => proxiedRequest.end(buffer),
+										(error) => {
+											logger.warn(`Error reading request body to proxy ${request.url}`, error);
+											proxiedRequest.destroy(error);
+											reject(error);
+										}
+									);
 								} else proxiedRequest.end();
 							} catch (error) {
 								logger.warn(`Error preparing proxying request ${request.url}`, error);
@@ -428,16 +443,23 @@ class Router {
 				}
 
 				if (actions.servingStaticPath) {
+					let staticPath = actions.servingStaticPath;
+					if (/:[\w\*\+]+/.test(staticPath)) {
+						const param = rule.condition?.path?.exec?.(request.pathname)?.[1];
+						if (param === undefined) {
+							throw new Error(`Static path "${staticPath}" needs a path parameter from the route to substitute`);
+						}
+						staticPath = staticPath.replace(/:[\w\*\+]+/, param);
+					}
+					const path = decodeURIComponent(staticPath);
 					return () =>
 						new Promise((resolve, reject) => {
-							const param = rule.condition.path.exec(request.pathname)[1];
-							let path = decodeURIComponent(actions.servingStaticPath.replace(/:[\w\*\+]+/, param));
 							for (let key in responseHeaders) {
 								nodeResponse.setHeader(key, responseHeaders[key]);
 							}
 							send(request, path, {
 								dotfiles: 'allow',
-								root: entryModule.baseDir,
+								root: routerState.baseDir,
 							})
 								.pipe(nodeResponse)
 								.on('finish', () => resolve())
@@ -464,6 +486,7 @@ class Rule {
 	actions = new RequestActions();
 	constructor(condition, options) {
 		if (condition == null) this.condition = null;
+		else if (condition instanceof OrRule) this.condition.or = condition;
 		else if (typeof condition === 'string' || condition instanceof RegExp || condition?.not) {
 			this.condition.path = stringToRegex(condition);
 		} else {
@@ -471,6 +494,7 @@ class Rule {
 			if (path) {
 				this.condition.path = stringToRegex(path);
 			}
+			if (condition.method) this.condition.method = condition.method;
 			if (condition.query) {
 				for (let name in condition.query) {
 					condition.query[name] = stringToRegex(condition.query[name]);
@@ -510,6 +534,10 @@ class Rule {
 	 */
 	match(request) {
 		if (this.condition == null) return true;
+		const method = this.condition.method;
+		// HEAD is a body-less GET, so GET routes also serve it
+		if (method && method !== request.method && !(method === 'GET' && request.method === 'HEAD')) return false;
+		if (this.condition.or && !this.condition.or.match(request)) return false;
 		if (this.condition.path) {
 			if (!this.condition.path.test(request.pathname)) {
 				return false;
@@ -517,7 +545,8 @@ class Rule {
 		}
 		const query = this.condition.query;
 		if (query) {
-			let requestQuery = new URLSearchParams(request.url);
+			const queryStart = request.url.indexOf('?');
+			const requestQuery = new URLSearchParams(queryStart === -1 ? '' : request.url.slice(queryStart + 1));
 			for (let key in query) {
 				if (!query[key].test(requestQuery.get(key))) {
 					return false;
@@ -596,12 +625,12 @@ class RequestActions {
 	}
 	setCaching(caching) {
 		if (caching.max_age)
-			caching.maxAgeSeconds = convertToMS(
+			caching.maxAgeSeconds = convertToSeconds(
 				typeof caching.max_age === 'object' ? caching.max_age['200'] : caching.max_age
 			);
-		if (caching.client_max_age) caching.clientMaxAgeSeconds = convertToMS(caching.client_max_age);
+		if (caching.client_max_age) caching.clientMaxAgeSeconds = convertToSeconds(caching.client_max_age);
 		if (caching.stale_while_revalidate)
-			caching.staleWhileRevalidateSeconds = convertToMS(caching.stale_while_revalidate);
+			caching.staleWhileRevalidateSeconds = convertToSeconds(caching.stale_while_revalidate);
 		this.caching = caching;
 	}
 	setProxying(origin) {
@@ -630,10 +659,10 @@ class RequestActions {
 		};
 	}
 	async run(handler) {
-		if (this.redirect) {
+		if (this.redirecting) {
 			return {
-				status: this.redirect.status,
-				headers: { Location: this.redirect.location },
+				status: this.redirecting.status,
+				headers: { Location: this.redirecting.location },
 			};
 		}
 		let response = await handler(this.request);
@@ -657,14 +686,10 @@ exports.or = function (...conditions) {
 exports.nextRoutes = {}; // I think this is for the next.js routes
 class OrRule {
 	constructor(conditions) {
-		this.conditions = conditions;
+		this.conditions = conditions.map((condition) => new Rule(condition, {}));
 	}
 	match(request) {
-		for (let condition of this.conditions) {
-			if (condition.match(request)) {
-				return true;
-			}
-		}
+		return this.conditions.some((rule) => rule.match(request));
 	}
 }
 
@@ -694,13 +719,13 @@ function stringToRegex(str) {
 		const regex = stringToRegex(str.not);
 		return {
 			test(value) {
-				return !stringToRegex(regex).test(value);
+				return !regex.test(value);
 			},
 		};
 	} else throw new TypeError('Unknown type of matching requests ' + str);
 }
 
-function convertToMS(interval) {
+function convertToSeconds(interval) {
 	let seconds = 0;
 	if (typeof interval === 'number') seconds = interval;
 	if (typeof interval === 'string') {
@@ -722,7 +747,7 @@ function convertToMS(interval) {
 				break;
 		}
 	}
-	return seconds * 1000;
+	return seconds;
 }
 
 function streamToBuffer(stream) {
